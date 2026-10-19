@@ -77,6 +77,8 @@ object HawkConfig {
     const val ISO_LPCM_DEFAULT = true
     const val ISO_TRUEHD_CORE = "player_iso_truehd_core"
     const val ISO_TRUEHD_CORE_DEFAULT = true
+    const val ISO_PGS = "player_iso_pgs"
+    const val ISO_PGS_DEFAULT = true
     const val PRELOAD_DURATION = "preload_duration"
     const val PRELOAD_DURATION_DEFAULT = 60
     const val PLAY_CACHE = "play_cache"

@@ -115,6 +115,7 @@ class KVKeySpec : KVDecoder.TypeRegistry {
             register(HawkConfig.ISO_PLAYBACK, false)
             register(HawkConfig.ISO_LPCM, true)
             register(HawkConfig.ISO_TRUEHD_CORE, true)
+            register(HawkConfig.ISO_PGS, true)
             register(HawkConfig.PLAY_CACHE, false)
             register(HawkConfig.DANMU_OPEN, false)
             register(HawkConfig.DANMU_RANDOM_COLOR, false)

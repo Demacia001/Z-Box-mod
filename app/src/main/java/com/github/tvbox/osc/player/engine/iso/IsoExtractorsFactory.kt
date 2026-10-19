@@ -4,6 +4,7 @@ import android.net.Uri
 import androidx.media3.common.util.TimestampAdjuster
 import androidx.media3.extractor.Extractor
 import androidx.media3.extractor.ExtractorsFactory
+import androidx.media3.extractor.text.DefaultSubtitleParserFactory
 import androidx.media3.extractor.ts.TsExtractor
 import androidx.media3.extractor.ts.TsPayloadReader
 
@@ -20,6 +21,8 @@ class IsoExtractorsFactory(
 
     private fun newExtractor(): Extractor = TsExtractor(
         TsExtractor.MODE_MULTI_PMT,
+        0,
+        DefaultSubtitleParserFactory(),
         TimestampAdjuster(TIMESTAMP_SHARED),
         readerFactory,
         TsExtractor.DEFAULT_TIMESTAMP_SEARCH_BYTES,
@@ -32,6 +35,7 @@ class IsoExtractorsFactory(
             BdTsPayloadReaderFactory(
                 lpcmEnabled = { IsoSettings.lpcmEnabled() },
                 trueHdCoreEnabled = { IsoSettings.trueHdCoreEnabled() },
+                pgsEnabled = { IsoSettings.pgsEnabled() },
             )
     }
 }

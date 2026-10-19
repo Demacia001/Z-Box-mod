@@ -22,4 +22,10 @@ object IsoSettings {
     fun setTrueHdCoreEnabled(value: Boolean) {
         KV.put(HawkConfig.ISO_TRUEHD_CORE, value)
     }
+
+    fun pgsEnabled(): Boolean = KV.get(HawkConfig.ISO_PGS, HawkConfig.ISO_PGS_DEFAULT)
+
+    fun setPgsEnabled(value: Boolean) {
+        KV.put(HawkConfig.ISO_PGS, value)
+    }
 }

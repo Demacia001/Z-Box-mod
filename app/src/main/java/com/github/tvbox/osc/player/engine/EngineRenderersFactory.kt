@@ -122,7 +122,8 @@ class EngineRenderersFactory(
         }
     }
 
-    override fun buildTextRenderers(        context: Context,
+    override fun buildTextRenderers(
+        context: Context,
         output: TextOutput,
         outputLooper: Looper,
         extensionRendererMode: Int,

@@ -52,16 +52,27 @@ class BdTsPayloadReaderFactoryTest {
         )
         assertNotNull(trueHd)
         assertTrue(trueHd is PesReader)
-        assertNull(
-            factory.createPayloadReader(
-                BdTsPayloadReaderFactory.STREAM_TYPE_PGS,
-                esInfo(BdTsPayloadReaderFactory.STREAM_TYPE_PGS),
-            ),
+        val pgs = factory.createPayloadReader(
+            BdTsPayloadReaderFactory.STREAM_TYPE_PGS,
+            esInfo(BdTsPayloadReaderFactory.STREAM_TYPE_PGS),
         )
+        assertNotNull(pgs)
+        assertTrue(pgs is PesReader)
         assertNotNull(
             factory.createPayloadReader(
                 BdTsPayloadReaderFactory.STREAM_TYPE_LPCM,
                 esInfo(BdTsPayloadReaderFactory.STREAM_TYPE_LPCM),
+            ),
+        )
+    }
+
+    @Test
+    fun pgs_switchOff_doesNotRegister() {
+        val disabled = BdTsPayloadReaderFactory(pgsEnabled = { false })
+        assertNull(
+            disabled.createPayloadReader(
+                BdTsPayloadReaderFactory.STREAM_TYPE_PGS,
+                esInfo(BdTsPayloadReaderFactory.STREAM_TYPE_PGS),
             ),
         )
     }

@@ -11,6 +11,7 @@ class BdTsPayloadReaderFactory(
     flags: Int = DEFAULT_FLAGS,
     private val lpcmEnabled: () -> Boolean = { true },
     private val trueHdCoreEnabled: () -> Boolean = { true },
+    private val pgsEnabled: () -> Boolean = { true },
 ) : TsPayloadReader.Factory {
 
     private val defaults = DefaultTsPayloadReaderFactory(flags)
@@ -30,7 +31,7 @@ class BdTsPayloadReaderFactory(
             } else {
                 null
             }
-            STREAM_TYPE_PGS -> null
+            STREAM_TYPE_PGS -> if (pgsEnabled()) PesReader(PgsReader(esInfo.language)) else null
             else -> defaults.createPayloadReader(streamType, esInfo)
         }
 
