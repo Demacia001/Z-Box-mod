@@ -8,6 +8,7 @@ import android.widget.Toast
 import com.github.tvbox.osc.player.KernelDecision
 import com.github.tvbox.osc.player.KernelPlayer
 import com.github.tvbox.osc.player.KernelReusePolicy
+import com.github.tvbox.osc.player.engine.MediaSources
 import com.github.tvbox.osc.player.PreloadCoordinator
 import com.github.tvbox.osc.player.PlaybackHostApi
 import com.github.tvbox.osc.player.PlaybackViewBridge
@@ -206,7 +207,7 @@ class PlayContainerViewBridge(private val container: PlayContainer) : PlaybackVi
         }
         // 记录本轮内容地址：播放器切换完成前仍会返回上一部影片的进度，进度回调靠它判陈旧。
         container.mController?.onContentUrlSet(url)
-        container.scheduler.startSwitchLinePlayTimeout()
+        container.scheduler.startSwitchLinePlayTimeout(MediaSources.isoHeaders(headers))
         if (reusePlayer) {
             val base = container.scheduler.playTimeoutBasePosition()
             view.skipPositionWhenPlay((if (sameContent) view.resumePositionForReplay(base) else base).toInt())

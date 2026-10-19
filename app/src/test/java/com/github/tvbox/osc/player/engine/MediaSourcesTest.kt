@@ -125,4 +125,84 @@ class MediaSourcesTest {
         assertEquals("", MediaSources.headerKeySuffix(null))
         assertEquals("", MediaSources.headerKeySuffix(emptyMap()))
     }
+
+    @Test
+    fun isoFormat_matchesOnlyIsoMimes() {
+        assertTrue(MediaSources.isIsoFormat("video/x-iso"))
+        assertTrue(MediaSources.isIsoFormat("application/x-iso9660-image"))
+        assertTrue(MediaSources.isIsoFormat("iso"))
+        assertTrue(MediaSources.isIsoFormat(" X-ISO "))
+        assertFalse(MediaSources.isIsoFormat("video/mp4"))
+        assertFalse(MediaSources.isIsoFormat("m3u8"))
+        assertFalse(MediaSources.isIsoFormat(""))
+        assertFalse(MediaSources.isIsoFormat(null))
+    }
+
+    @Test
+    fun isoUri_directSuffix() {
+        assertTrue(MediaSources.isIsoUri("http://cdn.example.com/a.iso"))
+        assertTrue(MediaSources.isIsoUri("http://cdn.example.com/a.ISO?token=1"))
+        assertFalse(MediaSources.isIsoUri("http://cdn.example.com/a.m3u8"))
+        assertFalse(MediaSources.isIsoUri("http://cdn.example.com/play?format=iso"))
+        assertFalse(MediaSources.isIsoUri("data:application/octet-stream;base64,AAAA"))
+        assertFalse(MediaSources.isIsoUri(null))
+    }
+
+    @Test
+    fun isoUri_netdiskProxyTarget() {
+        assertTrue(
+            MediaSources.isIsoUri(
+                "http://127.0.0.1:5266?url=http%3A%2F%2Fcdn.example.com%2Fdisc.iso&thread=16&header=%7B%7D",
+            ),
+        )
+        assertTrue(
+            MediaSources.isIsoUri(
+                "http://127.0.0.1:5266?thread=16&url=http%3A%2F%2Fcdn.example.com%2Fdisc.iso%3Ftoken%3D1",
+            ),
+        )
+        assertFalse(
+            MediaSources.isIsoUri(
+                "http://127.0.0.1:5266?url=http%3A%2F%2Fcdn.example.com%2Findex.m3u8&thread=16",
+            ),
+        )
+    }
+
+    @Test
+    fun isoHeader_detectedAndStripped() {
+        val headers = mapOf("Referer" to "http://ref", "TVBox-Iso" to "1")
+        assertTrue(MediaSources.isoHeaders(headers))
+        assertTrue(MediaSources.isoHeaders(mapOf("tvbox-iso" to "1")))
+        assertFalse(MediaSources.isoHeaders(mapOf("Referer" to "http://ref")))
+        assertFalse(MediaSources.isoHeaders(emptyMap()))
+        assertFalse(MediaSources.isoHeaders(null))
+        assertFalse(MediaSources.toRequestHeaders(headers).containsKey("TVBox-Iso"))
+    }
+
+    @Test
+    fun isoHeader_doesNotChangeCacheKey() {
+        val plain = MediaSources.headerKeySuffix(mapOf("Referer" to "http://ref"))
+        val marked = MediaSources.headerKeySuffix(mapOf("Referer" to "http://ref", "TVBox-Iso" to "1"))
+        assertEquals("\nReferer:http://ref;", plain)
+        assertEquals(plain, marked)
+    }
+
+    @Test
+    fun withIsoHeader_copiesAndMarks() {
+        val source = hashMapOf("Referer" to "http://ref")
+        val marked = MediaSources.withIsoHeader(source)
+        assertEquals("1", marked["TVBox-Iso"])
+        assertEquals("http://ref", marked["Referer"])
+        assertFalse(source.containsKey("TVBox-Iso"))
+        assertEquals("1", MediaSources.withIsoHeader(null)["TVBox-Iso"])
+    }
+
+    @Test
+    fun inferFormatContentType_isoMatches() {
+        assertEquals(MediaSources.TYPE_ISO, MediaSources.inferFormatContentType(mapOf("TVBox-Format" to "video/x-iso")))
+        assertEquals(MediaSources.TYPE_ISO, MediaSources.inferFormatContentType(mapOf("TVBox-Format" to "x-iso")))
+        assertEquals(MediaSources.TYPE_ISO, MediaSources.inferFormatContentType(mapOf("TVBox-Iso" to "1")))
+        assertEquals(MediaSources.TYPE_ISO, MediaSources.inferContentType("http://x/a.iso", mapOf("TVBox-Iso" to "1")))
+        assertEquals(C.TYPE_OTHER, MediaSources.inferFormatContentType(mapOf("TVBox-Format" to "video/mp4")))
+        assertEquals(C.TYPE_HLS, MediaSources.inferFormatContentType(mapOf("TVBox-Format" to "hls")))
+    }
 }

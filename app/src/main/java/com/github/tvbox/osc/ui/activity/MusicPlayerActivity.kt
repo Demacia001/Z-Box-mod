@@ -31,6 +31,8 @@ import com.github.tvbox.osc.player.PlaybackPage
 import com.github.tvbox.osc.player.PlaybackService
 import com.github.tvbox.osc.player.PlaybackSession
 import com.github.tvbox.osc.player.PlaybackViewBridge
+import com.github.tvbox.osc.player.engine.MediaSources
+import com.github.tvbox.osc.player.engine.iso.IsoSessionSignal
 import com.github.tvbox.osc.player.PlayerHelper
 import com.github.tvbox.osc.player.state.CastSheetState
 import com.github.tvbox.osc.player.state.PlayState
@@ -84,6 +86,7 @@ class MusicPlayerActivity : BaseActivity(), PlaybackPage {
     private var sourceKey = ""
     private var historySourceKey = ""
     private var ready = false
+    private var isoBailed = false
     private var lifecyclePaused = false
     private var lyricSource: String? = null
     private var lyricJob: Job? = null
@@ -97,6 +100,12 @@ class MusicPlayerActivity : BaseActivity(), PlaybackPage {
         controller = engine.controller()
         player = engine.player()
         vod = controller.vod() ?: run {
+            finish()
+            return
+        }
+        if (isIsoSession()) {
+            controller.setMusicAudioOnly(false)
+            Toast.makeText(this, getString(R.string.player_iso_music_unsupported), Toast.LENGTH_SHORT).show()
             finish()
             return
         }
@@ -182,11 +191,15 @@ class MusicPlayerActivity : BaseActivity(), PlaybackPage {
         main.removeCallbacksAndMessages(null)
         scope.cancel()
         lyricJob = null
-        if (ready) {
+        if (ready || engine.attachedPage() === this) {
             PlayerTipBridge.hide()
             syncHistory()
             controller.setMusicAudioOnly(false)
-            engine.detach(this)
+            if (isoBailed) {
+                engine.detachForHandover(this)
+            } else {
+                engine.detach(this)
+            }
         }
         super.onDestroy()
     }
@@ -203,6 +216,15 @@ class MusicPlayerActivity : BaseActivity(), PlaybackPage {
     }
 
     private fun onPlayStateChanged(playState: PlayState) {
+        if (playState == PlayState.PREPARING
+            || playState == PlayState.PREPARED
+            || playState == PlayState.PLAYING
+        ) {
+            if (isIsoSession()) {
+                bailIsoSession()
+                return
+            }
+        }
         when (playState) {
             PlayState.PREPARING, PlayState.BUFFERING -> ui.buffering = true
             PlayState.PREPARED, PlayState.BUFFERED -> ui.buffering = false
@@ -233,6 +255,18 @@ class MusicPlayerActivity : BaseActivity(), PlaybackPage {
             refreshMeta()
             syncLyric()
         }
+    }
+
+    private fun isIsoSession(): Boolean =
+        MediaSources.isoHeaders(controller.webHeaderMap()) || IsoSessionSignal.escalated()
+
+    private fun bailIsoSession() {
+        if (isoBailed) return
+        isoBailed = true
+        LOG.i("echo-iso-music-bail")
+        controller.setMusicAudioOnly(false)
+        Toast.makeText(this, getString(R.string.player_iso_music_unsupported), Toast.LENGTH_SHORT).show()
+        finish()
     }
 
     private fun togglePlay() {
@@ -424,7 +458,7 @@ class MusicPlayerActivity : BaseActivity(), PlaybackPage {
         player.setTrackMemoryKey("")
         controller.markContentStarted()
         if (headers != null) player.setUrl(url, headers) else player.setUrl(url)
-        controller.startSwitchLinePlayTimeout()
+        controller.startSwitchLinePlayTimeout(false)
         if (reusePlayer) {
             val base = controller.playTimeoutBasePosition()
             player.skipPositionWhenPlay((if (sameContent) player.resumePositionForReplay(base) else base).toInt())

@@ -523,6 +523,11 @@
     <string name="player_get_info_error">Failed to get playback info</string>
     <string name="player_getting_info">Getting playback info</string>
     <string name="player_play_url_empty">Playback URL is empty</string>
+    <string name="player_iso_unsupported">Blu-ray ISO images cannot be played</string>
+    <string name="player_iso_music_unsupported">Blu-ray ISO images are not supported in music mode</string>
+    <string name="player_source_invalid">This line returned incomplete data</string>
+    <string name="player_iso_cast_unsupported">Casting is not supported for Blu-ray ISO images</string>
+    <string name="player_iso_bandwidth_low">Network drive is throttled: not enough bandwidth</string>
     <string name="player_play_error_retry">Playback error. Retrying automatically</string>
     <string name="player_decode_fallback_tip">Hardware decoding failed. Retrying with software decoding</string>
     <string name="player_call_external_play">Casting to %1$s</string>

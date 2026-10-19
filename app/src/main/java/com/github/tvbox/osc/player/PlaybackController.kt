@@ -14,6 +14,7 @@ import com.github.tvbox.osc.sourcedata.SourceViewModel
 import com.github.tvbox.osc.util.LOG
 import com.github.tvbox.osc.util.LanguageManager
 import com.github.tvbox.osc.player.state.PlayState
+import com.github.tvbox.osc.player.engine.iso.IsoSessionSignal
 import com.github.tvbox.osc.player.usecase.M3u8PurifyUseCase
 import org.greenrobot.eventbus.EventBus
 import org.json.JSONArray
@@ -314,6 +315,10 @@ class PlaybackController {
             this@PlaybackController.cancelPlayTimeout()
         }
 
+        override fun startSwitchLinePlayTimeout(isoSession: Boolean) {
+            this@PlaybackController.startSwitchLinePlayTimeout(isoSession)
+        }
+
         override fun isPlaybackStarted(): Boolean = this@PlaybackController.isPlaybackStarted()
 
         override fun stopMusicSessionForFailedPlayback() {
@@ -365,6 +370,7 @@ class PlaybackController {
 
     fun beginNewPlay() {
         st.beginNewPlay()
+        IsoSessionSignal.reset()
         timeouts.cancelPendingCompletionDrop()
         st.audioOnlyConfirmed = false
     }
@@ -457,6 +463,11 @@ class PlaybackController {
         cancelPlayTimeout()
     }
 
+    fun isIsoBandwidthStopped(): Boolean =
+        (st.isoSession || IsoSessionSignal.escalated()) && st.isoBandwidthSwitchTried
+
+    fun isSourceStub(): Boolean = IsoSessionSignal.stubBytes() > 0
+
     fun isPlaybackStarted(): Boolean {
         if (st.playbackStarted) return true
         val bridge = view ?: return false
@@ -476,14 +487,15 @@ class PlaybackController {
         return Math.max(PlaybackTimeouts.RESOLVE_PLAY_URL_TIMEOUT_MS, (bean.getPlayTimeoutSeconds() + 1L) * 1000L)
     }
 
-    fun startSwitchLinePlayTimeout() {
+    fun startSwitchLinePlayTimeout(isoSession: Boolean) {
         if (!st.allowAutoSwitchLine) {
             cancelPlayTimeout()
             return
         }
         cancelPlayTimeout()
-        LOG.i("echo-switchLinePlay start timeout")
-        timeouts.startSwitchLinePlayTimeout()
+        val timeoutMs = PlaybackTimeouts.switchLinePlayTimeoutMs(isoSession)
+        LOG.i("echo-switchLinePlay start timeout:$timeoutMs")
+        timeouts.startSwitchLinePlayTimeout(timeoutMs)
     }
 
     fun cancelSwitchLinePlayTimeout() {
@@ -723,8 +735,8 @@ class PlaybackController {
             this@PlaybackController.startResolvePlayUrlTimeout()
         }
 
-        override fun startSwitchLinePlayTimeout() {
-            this@PlaybackController.startSwitchLinePlayTimeout()
+        override fun startSwitchLinePlayTimeout(isoSession: Boolean) {
+            this@PlaybackController.startSwitchLinePlayTimeout(isoSession)
         }
 
         override fun cancelPlayTimeout() {

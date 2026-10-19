@@ -39,6 +39,7 @@ import com.github.tvbox.osc.player.TrackInfoBean
 import com.github.tvbox.osc.player.effect.PictureEffects
 import com.github.tvbox.osc.player.effect.RedrawPolicy
 import com.github.tvbox.osc.player.effect.ReplayableCacheVideoRenderer
+import com.github.tvbox.osc.player.engine.iso.IsoSettings
 import com.github.tvbox.osc.player.state.KernelPlayback
 import com.github.tvbox.osc.util.LOG
 import okhttp3.OkHttpClient
@@ -94,6 +95,10 @@ class PlayerEngine(
     private var currentPlayPath: String? = null
     private var currentHeaders: Map<String, String>? = null
     private var retriedAsHls = false
+
+    private var retriedAsBdav = false
+
+    private var isoSession = false
 
     private var useDiskCache = false
 
@@ -296,11 +301,16 @@ class PlayerEngine(
         }
         currentPlayPath = playPath
         currentHeaders = copyHeaders(headers)
+        isoSession = MediaSources.isoHeaders(currentHeaders)
         resetSessionFlags()
         trackSelection.resetForNewContent()
         resetPlaybackStats()
         mediaSource = mediaSources.getMediaSource(playPath, copyHeaders(currentHeaders))
 
+        if (MediaSources.isoHeaders(currentHeaders)) {
+            LOG.i("echo-iso-play-skip-cache: $playPath")
+            return
+        }
         val preloadTarget = config.preloadTargetChecker(playPath, headers)
         val playCacheWanted = useDiskCache && config.playCacheEnabled()
         val mode = SourcePolicy.resolveCacheMode(
@@ -328,6 +338,7 @@ class PlayerEngine(
 
     private fun resetSessionFlags() {
         retriedAsHls = false
+        retriedAsBdav = false
         videoEffectsOpen = false
         pictureHdrSource = false
         lastErrorKindValue = ERROR_KIND_UNKNOWN
@@ -345,7 +356,10 @@ class PlayerEngine(
     }
 
     fun setStartPosition(positionMs: Long) {
-        startPositionMs = maxOf(0L, positionMs)
+        if (isoSession && positionMs > 0) {
+            LOG.i("echo-iso-start-zero: drop resume $positionMs")
+        }
+        startPositionMs = if (isoSession) 0L else maxOf(0L, positionMs)
         startPositionApplied = false
     }
 
@@ -379,6 +393,10 @@ class PlayerEngine(
     }
 
     fun seekTo(positionMs: Long) {
+        if (isoSession && positionMs > ISO_SEEK_ZERO_TOLERANCE_MS) {
+            LOG.i("echo-iso-seek-blocked:$positionMs")
+            return
+        }
         internalPlayer?.seekTo(positionMs)
     }
 
@@ -807,12 +825,37 @@ class PlayerEngine(
             i++
         }
         LOG.i(sb.toString())
+        if (retryAsBdav(error)) {
+            return
+        }
         if (retryAsHls(error)) {
             return
         }
         for (listener in ArrayList(errorListeners)) {
             listener.onPlayerError(error, lastErrorKindValue)
         }
+    }
+
+    private fun retryAsBdav(error: PlaybackException): Boolean {
+        val exo = internalPlayer ?: return false
+        val path = currentPlayPath ?: return false
+        if (retriedAsBdav || isoSession || !IsoSettings.enabled()) {
+            return false
+        }
+        if (error.errorCode != PlaybackException.ERROR_CODE_PARSING_CONTAINER_UNSUPPORTED) {
+            return false
+        }
+        retriedAsBdav = true
+        isoSession = true
+        startPositionMs = 0L
+        LOG.i("echo-iso-bdav-retry:$path")
+        val bdavSource = mediaSources.getBdavMediaSource(path, copyHeaders(currentHeaders))
+        mediaSource = bdavSource
+        exo.setMediaSource(bdavSource, 0)
+        startPositionApplied = true
+        exo.prepare()
+        exo.playWhenReady = true
+        return true
     }
 
     private fun retryAsHls(error: PlaybackException): Boolean {
@@ -841,6 +884,7 @@ class PlayerEngine(
         const val ERROR_KIND_UNKNOWN = 0
         const val ERROR_KIND_NETWORK = 1
         const val ERROR_KIND_DECODE = 2
+        const val ISO_SEEK_ZERO_TOLERANCE_MS = 1000L
 
         @JvmStatic
         fun classifyError(codeName: String?): Int {

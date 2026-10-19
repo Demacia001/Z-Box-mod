@@ -1,0 +1,25 @@
+package com.github.tvbox.osc.player.engine.iso
+
+import com.github.tvbox.osc.util.HawkConfig
+import com.github.tvbox.osc.util.KV
+
+object IsoSettings {
+
+    fun enabled(): Boolean = KV.get(HawkConfig.ISO_PLAYBACK, HawkConfig.ISO_PLAYBACK_DEFAULT)
+
+    fun setEnabled(value: Boolean) {
+        KV.put(HawkConfig.ISO_PLAYBACK, value)
+    }
+
+    fun lpcmEnabled(): Boolean = KV.get(HawkConfig.ISO_LPCM, HawkConfig.ISO_LPCM_DEFAULT)
+
+    fun setLpcmEnabled(value: Boolean) {
+        KV.put(HawkConfig.ISO_LPCM, value)
+    }
+
+    fun trueHdCoreEnabled(): Boolean = KV.get(HawkConfig.ISO_TRUEHD_CORE, HawkConfig.ISO_TRUEHD_CORE_DEFAULT)
+
+    fun setTrueHdCoreEnabled(value: Boolean) {
+        KV.put(HawkConfig.ISO_TRUEHD_CORE, value)
+    }
+}

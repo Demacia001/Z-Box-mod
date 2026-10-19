@@ -5,6 +5,10 @@ import androidx.media3.exoplayer.mediacodec.MediaCodecSelector
 import com.github.tvbox.osc.R
 import com.github.tvbox.osc.bean.VodInfo
 import com.github.tvbox.osc.data.EpisodeMatcher
+import com.github.tvbox.osc.player.engine.iso.IsoBandwidthGuard
+import com.github.tvbox.osc.player.engine.iso.IsoSessionSignal
+import com.github.tvbox.osc.player.engine.iso.IsoThroughput
+import com.github.tvbox.osc.player.engine.iso.stopsIsoBandwidthRetry
 import com.github.tvbox.osc.util.HawkConfig
 import com.github.tvbox.osc.util.KV
 import com.github.tvbox.osc.util.LOG
@@ -49,6 +53,8 @@ class PlaybackRetryDelegate(private val host: Host) {
         fun cancelPlayRequest()
 
         fun cancelPlayTimeout()
+
+        fun startSwitchLinePlayTimeout(isoSession: Boolean)
 
         fun isPlaybackStarted(): Boolean
 
@@ -165,6 +171,18 @@ class PlaybackRetryDelegate(private val host: Host) {
     fun retryAfterStartedError(): Boolean {
         if (dropRetryIfCastAborted("retryAfterStartedError")) return false
         val st = host.attemptState()
+        if (isoSessionLike(st) && exoLastErrorKind() != ExoPlayer.ERROR_KIND_DECODE) {
+            val view = host.view()
+            val durationMs = view?.mediaPlayer()?.duration?.takeIf { it > 0L } ?: (view?.duration() ?: 0L)
+            val verdict = IsoBandwidthGuard.evaluate(durationMs)
+            if (verdict != null) {
+                LOG.i("echo-iso-bandwidth-mid:${verdict.measuredBytesPerSecond}:${verdict.requiredBytesPerSecond}")
+                view?.showTip(PlaybackController.str(R.string.player_iso_bandwidth_low), false, true)
+                st.isoBandwidthSwitchTried = true
+                st.playbackStarted = false
+                return false
+            }
+        }
         if (st.hasRetriedAfterStart) return false
         val webUrl = host.webPlayUrl() ?: return false
         if (TextUtils.isEmpty(webUrl)) return false
@@ -222,10 +240,34 @@ class PlaybackRetryDelegate(private val host: Host) {
         return true
     }
 
+    private suspend fun retryIsoHttpError(): Boolean {
+        val st = host.attemptState()
+        if (!isoSessionLike(st)) return false
+        if (!RetryPolicy.isHttpStatusError(exoLastErrorCodeName())) return false
+        if (st.hasRefreshedOnIsoHttpError) {
+            LOG.i("echo-iso-refresh-resolve-exhausted, try next line: " + host.webPlayUrl())
+            return tryNextLineIfEnabled()
+        }
+        st.hasRefreshedOnIsoHttpError = true
+        st.refreshKeepsProgress = true
+        st.playbackStarted = false
+        LOG.i("echo-iso-refresh-resolve: " + host.webPlayUrl())
+        host.stopParse()
+        host.initParseLoadFound()
+        if (!host.isCrossContentReuseAllowed()) host.view()?.releasePlayer()
+        host.play(false)
+        return true
+    }
+
     suspend fun autoRetry(): Boolean {
         if (dropRetryIfCastAborted("autoRetry")) return false
         val st = host.attemptState()
         if (retryWithFreshResolve("autoRetry")) return true
+        if (retryIsoHttpError()) return true
+        if (stopsIsoBandwidthRetry(isoSessionLike(st), st.isoBandwidthSwitchTried)) {
+            LOG.i("echo-iso-bandwidth-exhausted")
+            return false
+        }
         val currentTime = System.currentTimeMillis()
         if (currentTime - st.lastRetryTime > 60_000) {
             LOG.i("echo-reset-autoRetryCount")
@@ -331,6 +373,7 @@ class PlaybackRetryDelegate(private val host: Host) {
         vod.playFlag = flagToSwitch
         vod.playIndex = nextIndex
         st.onLineSwitched()
+        IsoSessionSignal.reset()
         host.inheritProgressFrom(preProgressKey, preProgress)
         host.play(false)
         return true
@@ -411,6 +454,36 @@ class PlaybackRetryDelegate(private val host: Host) {
             view?.hideTipOnUiThread()
             return
         }
+        if (IsoSessionSignal.consumeWindowExtension()) {
+            LOG.i("echo-iso-bdav-timeout-extend")
+            st.isoSession = true
+            host.startSwitchLinePlayTimeout(true)
+            return
+        }
+        if (st.isoSession) {
+            val durationMs = view?.mediaPlayer()?.duration?.takeIf { it > 0L } ?: (view?.duration() ?: 0L)
+            LOG.i(
+                "echo-iso-bandwidth-probe:dur=$durationMs" +
+                    ":bps=${IsoThroughput.bytesPerSecond()}:target=${IsoThroughput.targetLength()}",
+            )
+            val verdict = IsoBandwidthGuard.evaluate(durationMs)
+            if (verdict != null) {
+                LOG.i("echo-iso-bandwidth:${verdict.measuredBytesPerSecond}:${verdict.requiredBytesPerSecond}")
+                view?.showTip(PlaybackController.str(R.string.player_iso_bandwidth_low), false, true)
+                host.stopParse()
+                if (st.isoBandwidthSwitchTried) {
+                    host.stopMusicSessionForFailedPlayback()
+                    host.cancelPlayTimeout()
+                    return
+                }
+                st.isoBandwidthSwitchTried = true
+                if (!tryNextLineIfEnabled()) {
+                    host.stopMusicSessionForFailedPlayback()
+                    host.cancelPlayTimeout()
+                }
+                return
+            }
+        }
         LOG.i("echo-switchLinePlay timeout, try next line")
         host.stopParse()
         if (st.hasAutoSwitchedPlayer) {
@@ -431,4 +504,7 @@ class PlaybackRetryDelegate(private val host: Host) {
     private fun showErrorTip(err: String) {
         host.view()?.showTip(err, false, true)
     }
+
+    private fun isoSessionLike(st: PlaybackAttemptState): Boolean =
+        st.isoSession || IsoSessionSignal.escalated()
 }

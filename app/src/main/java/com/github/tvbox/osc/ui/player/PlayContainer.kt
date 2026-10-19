@@ -30,6 +30,7 @@ import com.github.tvbox.osc.player.PlayerHelper
 import com.github.tvbox.osc.player.PreloadCoordinator
 import com.github.tvbox.osc.player.VideoOrientation
 import com.github.tvbox.osc.player.controller.VideoPlayerController
+import com.github.tvbox.osc.player.engine.MediaSources
 import com.github.tvbox.osc.player.controller.PlayerControlApi
 import com.github.tvbox.osc.player.danmu.DanmuLoadController
 import com.github.tvbox.osc.player.state.CastSheetState
@@ -353,6 +354,11 @@ class PlayContainer(activity: Activity) : FrameLayout(activity), CustomAdapt, Pl
     }
 
     fun showCastDialog() {
+        if (MediaSources.isoHeaders(scheduler.webHeaderMap())) {
+            LOG.i("echo-iso-cast-blocked")
+            Toast.makeText(mContext, mContext.getString(R.string.player_iso_cast_unsupported), Toast.LENGTH_SHORT).show()
+            return
+        }
         val webUrl = scheduler.webPlayUrl()
         if (TextUtils.isEmpty(webUrl)) {
             Toast.makeText(mContext, mContext.getString(R.string.toast_no_cast_url), Toast.LENGTH_SHORT).show()

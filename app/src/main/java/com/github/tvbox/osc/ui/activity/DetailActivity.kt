@@ -24,6 +24,8 @@ import com.github.tvbox.osc.ui.components.SheetHostScaffold
 import com.github.tvbox.osc.player.PageHost
 import com.github.tvbox.osc.player.PlaybackController
 import com.github.tvbox.osc.player.PlaybackService
+import com.github.tvbox.osc.player.engine.MediaSources
+import com.github.tvbox.osc.player.engine.iso.IsoSessionSignal
 import com.github.tvbox.osc.player.state.PlayState
 import com.github.tvbox.osc.ui.player.PlayContainer
 import com.github.tvbox.osc.ui.theme.AVBoxTheme
@@ -293,12 +295,22 @@ class DetailActivity : BaseActivity(), PageHost {
             Toast.makeText(this, getString(R.string.detail_content_not_ready), Toast.LENGTH_SHORT).show()
             return
         }
+        if (isIsoPlayback()) {
+            Toast.makeText(this, getString(R.string.player_iso_music_unsupported), Toast.LENGTH_SHORT).show()
+            return
+        }
         // 先按纯音频启动，避免详情页这一帧就把视频解码器建起来（交接后无法回收）。
         prepareAudioOnlyForMusicPage()
         ensurePlaying()
         if (!handOffToMusicPlayer()) {
             Toast.makeText(this, getString(R.string.detail_no_playable_content), Toast.LENGTH_SHORT).show()
         }
+    }
+
+    private fun isIsoPlayback(): Boolean {
+        val controller = PlaybackService.peek()?.controller() ?: return false
+        if (!engineOwnsDetailContent()) return false
+        return MediaSources.isoHeaders(controller.webHeaderMap()) || IsoSessionSignal.escalated()
     }
 
     private fun prepareAudioOnlyForMusicPage() {

@@ -17,6 +17,12 @@ import androidx.media3.exoplayer.rtsp.RtspMediaSource
 import androidx.media3.exoplayer.source.MediaSource
 import androidx.media3.exoplayer.source.ProgressiveMediaSource
 import com.github.tvbox.osc.net.OkGoHelper
+import com.github.tvbox.osc.player.engine.iso.BdavDataSource
+import com.github.tvbox.osc.player.engine.iso.BdavLoadErrorPolicy
+import com.github.tvbox.osc.player.engine.iso.IsoDataSource
+import com.github.tvbox.osc.player.engine.iso.IsoExtractorsFactory
+import com.github.tvbox.osc.player.engine.iso.IsoThroughput
+import com.github.tvbox.osc.player.engine.iso.M2tsDataSource
 import java.util.HashMap
 import java.util.Locale
 import java.util.TreeMap
@@ -66,6 +72,9 @@ class MediaSources(
         if ("rtsp" == contentUri.scheme) {
             return RtspMediaSource.Factory().createMediaSource(MediaItem.fromUri(contentUri))
         }
+        if (isoHeaders(headers) || contentType == TYPE_ISO) {
+            return createIsoMediaSource(uri, headers)
+        }
         val requestHeaders = toRequestHeaders(headers)
         val mediaItem = buildMediaItem(uri, headers)
         var factory: DataSource.Factory = createDataSourceFactory(requestHeaders)
@@ -79,6 +88,21 @@ class MediaSources(
                 .createMediaSource(mediaItem)
             else -> ProgressiveMediaSource.Factory(factory).createMediaSource(mediaItem)
         }
+    }
+
+    private fun createIsoMediaSource(uri: String, headers: Map<String, String>?): MediaSource {
+        IsoThroughput.beginSession()
+        val dataSourceFactory = M2tsDataSource.Factory(IsoDataSource.factory(headers))
+        return ProgressiveMediaSource.Factory(dataSourceFactory, IsoExtractorsFactory())
+            .createMediaSource(buildMediaItem(uri, headers))
+    }
+
+    fun getBdavMediaSource(uri: String, headers: Map<String, String>?): MediaSource {
+        IsoThroughput.beginSession()
+        val dataSourceFactory = BdavDataSource.Factory(createDataSourceFactory(headers))
+        return ProgressiveMediaSource.Factory(dataSourceFactory, IsoExtractorsFactory())
+            .setLoadErrorHandlingPolicy(BdavLoadErrorPolicy())
+            .createMediaSource(buildMediaItem(uri, headers))
     }
 
     fun createDataSourceFactory(headers: Map<String, String>?): DataSource.Factory {
@@ -123,6 +147,10 @@ class MediaSources(
     companion object {
 
         const val HEADER_FORMAT = "TVBox-Format"
+
+        const val HEADER_ISO = "TVBox-Iso"
+
+        const val TYPE_ISO = 100
 
         const val EXTRA_HEADERS = "avbox.extras.httpHeaders"
 
@@ -184,6 +212,7 @@ class MediaSources(
                 val key = entry.key
                 val value = entry.value
                 if (key != null && value != null) {
+                    if (HEADER_ISO.equals(key, ignoreCase = true)) continue
                     sorted[key.trim { it <= ' ' }] = value.trim { it <= ' ' }
                 }
             }
@@ -212,6 +241,9 @@ class MediaSources(
                 if (HEADER_FORMAT.equals(key, ignoreCase = true)) {
                     continue
                 }
+                if (HEADER_ISO.equals(key, ignoreCase = true)) {
+                    continue
+                }
                 requestHeaders[key] = value.trim { it <= ' ' }
             }
             return requestHeaders
@@ -235,9 +267,12 @@ class MediaSources(
         @JvmStatic
         fun inferFormatContentType(headers: Map<String, String>?): Int {
             if (headers == null || !headers.containsKey(HEADER_FORMAT)) {
-                return C.TYPE_OTHER
+                return if (isoHeaders(headers)) TYPE_ISO else C.TYPE_OTHER
             }
             val format = (headers[HEADER_FORMAT] ?: return C.TYPE_OTHER).trim { it <= ' ' }.lowercase(Locale.getDefault())
+            if (isIsoFormat(format)) {
+                return TYPE_ISO
+            }
             if (format == "hls" || format.contains("mpegurl") || format.contains("m3u8")) {
                 return C.TYPE_HLS
             }
@@ -253,6 +288,61 @@ class MediaSources(
             C.TYPE_DASH -> MimeTypes.APPLICATION_MPD
             else -> null
         }
+
+        @JvmStatic
+        fun isIsoFormat(format: String?): Boolean {
+            val value = format?.trim()?.lowercase(Locale.ROOT) ?: return false
+            if (value.isEmpty()) return false
+            val subtype = value.substringAfterLast('/')
+            return subtype == "iso" || subtype == "x-iso" || subtype.contains("iso9660")
+        }
+
+        @JvmStatic
+        fun isoHeaders(headers: Map<String, String>?): Boolean =
+            headers != null && headers.keys.any { HEADER_ISO.equals(it, ignoreCase = true) }
+
+        @JvmStatic
+        fun withIsoHeader(headers: Map<String, String>?): HashMap<String, String> {
+            val copy = HashMap<String, String>()
+            if (headers != null) {
+                for ((key, value) in headers) {
+                    copy[key] = value
+                }
+            }
+            copy[HEADER_ISO] = "1"
+            return copy
+        }
+
+        @JvmStatic
+        fun isIsoUri(uri: String?): Boolean {
+            if (uri.isNullOrEmpty() || uri.startsWith("data:", ignoreCase = true)) return false
+            if (pathEndsWithIso(uri)) return true
+            val target = extractQueryParam(uri, "url") ?: return false
+            return pathEndsWithIso(target)
+        }
+
+        private fun pathEndsWithIso(url: String): Boolean =
+            url.substringBefore('?').substringBefore('#').lowercase(Locale.ROOT).endsWith(".iso")
+
+        private fun extractQueryParam(url: String, name: String): String? {
+            val queryStart = url.indexOf('?')
+            if (queryStart < 0 || queryStart == url.length - 1) return null
+            val query = url.substring(queryStart + 1).substringBefore('#')
+            for (pair in query.split('&')) {
+                val separator = pair.indexOf('=')
+                if (separator <= 0) continue
+                if (!pair.substring(0, separator).equals(name, ignoreCase = true)) continue
+                return decodeComponent(pair.substring(separator + 1))
+            }
+            return null
+        }
+
+        private fun decodeComponent(value: String): String =
+            try {
+                java.net.URLDecoder.decode(value, "UTF-8")
+            } catch (e: IllegalArgumentException) {
+                value
+            }
 
         @JvmStatic
         fun isHlsUri(uri: String): Boolean {

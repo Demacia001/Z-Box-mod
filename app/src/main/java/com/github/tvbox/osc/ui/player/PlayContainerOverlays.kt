@@ -171,7 +171,11 @@ internal class PlayContainerOverlays(private val host: PlayContainer) {
     }
 
     private fun terminalErrorText(err: String): String =
-        if (host.scheduler.isLastErrorExceedsDecodeCapability()) {
+        if (host.scheduler.isSourceStub()) {
+            host.context.getString(R.string.player_source_invalid)
+        } else if (host.scheduler.isIsoBandwidthStopped()) {
+            host.context.getString(R.string.player_iso_bandwidth_low)
+        } else if (host.scheduler.isLastErrorExceedsDecodeCapability()) {
             host.context.getString(R.string.player_decode_exceeds_capability)
         } else {
             err

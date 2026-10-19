@@ -68,6 +68,10 @@ object PreloadManagerHolder {
         if (!enabled() || url.isNullOrEmpty()) {
             return
         }
+        if (MediaSources.isoHeaders(headers)) {
+            LOG.i("echo-iso-preload-skip: " + url)
+            return
+        }
         try {
             val manager = get(context.applicationContext)
             val key = keyOf(url, headers)

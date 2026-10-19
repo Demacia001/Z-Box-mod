@@ -40,9 +40,9 @@ class PlaybackTimeouts(private val callback: Callback) {
         handler.sendEmptyMessageDelayed(MSG_RESOLVE_PLAY_URL_TIMEOUT, timeoutMs)
     }
 
-    fun startSwitchLinePlayTimeout() {
+    fun startSwitchLinePlayTimeout(timeoutMs: Long) {
         cancelPlayTimeout()
-        handler.sendEmptyMessageDelayed(MSG_SWITCH_LINE_PLAY_TIMEOUT, SWITCH_LINE_PLAY_TIMEOUT_MS)
+        handler.sendEmptyMessageDelayed(MSG_SWITCH_LINE_PLAY_TIMEOUT, timeoutMs)
     }
 
     fun cancelPlayTimeout() {
@@ -66,10 +66,19 @@ class PlaybackTimeouts(private val callback: Callback) {
         @JvmField
         val RESOLVE_PLAY_URL_TIMEOUT_MS: Long = 15 * 1000L
 
+        @JvmField
+        val SWITCH_LINE_PLAY_TIMEOUT_MS: Long = 20 * 1000L
+
+        @JvmField
+        val ISO_SWITCH_LINE_PLAY_TIMEOUT_MS: Long = 45 * 1000L
+
+        @JvmStatic
+        fun switchLinePlayTimeoutMs(isoSession: Boolean): Long =
+            if (isoSession) ISO_SWITCH_LINE_PLAY_TIMEOUT_MS else SWITCH_LINE_PLAY_TIMEOUT_MS
+
         private const val MSG_RESOLVE_PLAY_URL_TIMEOUT = 101
         private const val MSG_SWITCH_LINE_PLAY_TIMEOUT = 102
 
         private const val MSG_DROP_SESSION_AFTER_COMPLETED = 103
-        private const val SWITCH_LINE_PLAY_TIMEOUT_MS = 20 * 1000L
     }
 }

@@ -71,6 +71,12 @@ object HawkConfig {
     const val BUFFER_TIMES = "buffer_times"
     const val BUFFER_TIMES_DEFAULT = 3
     const val PRELOAD_NEXT_EPISODE = "preload_next_episode"
+    const val ISO_PLAYBACK = "player_iso_enabled"
+    const val ISO_PLAYBACK_DEFAULT = false
+    const val ISO_LPCM = "player_iso_lpcm"
+    const val ISO_LPCM_DEFAULT = true
+    const val ISO_TRUEHD_CORE = "player_iso_truehd_core"
+    const val ISO_TRUEHD_CORE_DEFAULT = true
     const val PRELOAD_DURATION = "preload_duration"
     const val PRELOAD_DURATION_DEFAULT = 60
     const val PLAY_CACHE = "play_cache"

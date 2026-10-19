@@ -80,6 +80,15 @@ class PlaybackAttemptState {
     var castPrepareOnly: Boolean = false
 
     @JvmField
+    var isoSession: Boolean = false
+
+    @JvmField
+    var hasRefreshedOnIsoHttpError: Boolean = false
+
+    @JvmField
+    var isoBandwidthSwitchTried: Boolean = false
+
+    @JvmField
     @Volatile
     var castAborted: Boolean = false
 
@@ -90,6 +99,7 @@ class PlaybackAttemptState {
         castAborted = false
         hasRefreshedOnFormatError = false
         refreshKeepsProgress = false
+        isoBandwidthSwitchTried = false
     }
 
     fun beginNewPlay() {
@@ -101,6 +111,8 @@ class PlaybackAttemptState {
         hasRetriedAfterStart = false
         hasRetriedSameUrlOnBoot = false
         usedPreloadedResult = false
+        isoSession = false
+        hasRefreshedOnIsoHttpError = false
     }
 
     fun userSelfRescue() {
@@ -108,6 +120,8 @@ class PlaybackAttemptState {
         hasRetriedAfterStart = false
         hasRetriedSameUrlOnBoot = false
         hasRefreshedOnFormatError = false
+        hasRefreshedOnIsoHttpError = false
+        isoBandwidthSwitchTried = false
     }
 
     fun stoppedForSourceSwitch() {
@@ -122,6 +136,7 @@ class PlaybackAttemptState {
         hasAutoSwitchedPlayer = false
         hasRetriedSameUrlOnBoot = false
         hasRefreshedOnFormatError = false
+        hasRefreshedOnIsoHttpError = false
         clearTriedLines()
     }
 
@@ -129,6 +144,7 @@ class PlaybackAttemptState {
         allowSwitchPlayer = true
         hasAutoSwitchedPlayer = false
         hasRefreshedOnFormatError = false
+        hasRefreshedOnIsoHttpError = false
         if (switchIntent != SwitchIntent.REBUILD) switchIntent = SwitchIntent.REUSE
     }
 
