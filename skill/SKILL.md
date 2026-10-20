@@ -54,6 +54,8 @@ description: 项目规则、通用原则、通用代码规范、交付验证与�
 | --- | --- | --- |
 | `skill/avbox-mobile-ui-spec.md` | **活规范**：技术基线(§2)、信息架构与主题(§3)、各页面规范(§4)、视觉与组件约定(§5)、关键技术约束与已知坑(§6，含 **§6.12 订阅源配置与站点字段**)、未决清单(§7)、历史索引(§8) | 改动 UI / 页面 / 播放内核 / 依赖 / **订阅源解析与站点字段**前**必读**（读 §0–§7） |
 | `skill/avbox-kv-mmkv-spec.md` | **迁移 Spec(已实施 2026-09-13)**：Hawk → MMKV 的现状盘点(键类型分布)、KV 门面设计、类型编码/加密/一次性数据迁移、分阶段实施与验收清单、决策记录 | 改动键值存储(新增/调整 KV 键、怀疑存储读写问题时)**必读**;§7 决策记录与文末修订记录是结论来源 |
+| `skill/avbox-iso-playback-spec.md` | **活规范**：蓝光 ISO / 裸 m2ts 在 media3 上的 as-built —— 技术基线与设备边界(§1)、配置与入口判定(§2)、模块地图(§3)、**不变量 C1–C12**(§4:声明轨必须有 Format、包装层不得扣数据、`endTracks` 语义、BD `stream_type` 表、STN 语言、主视频 PID、去重选片、快照版本、VRS 序列、多 run、日志前缀)、已知坑与判据 15 条(§5)、运维与日志速查(§6)、**走查清单 1–12**(§7)、决策 D1–D8(§8)、未决 9 项(§9);过程与取证在 `history/iso-playback-chronicle.md` | 改动 `player/engine/iso/**`、`MediaSources` 的 ISO 分支、`PlayerEngine` 的 `isoSession` 语义,或**新增任何 `TrackOutput`/`ExtractorOutput` 包装层**前**必读**(至少 §4 + §5);播放/黑屏/无声/选错片类问题先看 §5 判据 |
+| `skill/history/iso-playback-chronicle.md` | **历史归档(只增不改)**：8 个真实案例(甲)、13 条缺陷的完整解剖与盘面取证(乙,`§14.x`)、seek/倍速判负与被推翻的实验(丙,`§11.5–§11.10`)、多段盘与性能实测(丁,`§12.9`/`§13.x`)。**保留原始编号**,便于与旧日志对账 | 按需检索:某现象的日志原文、盘的事实、为什么某方案被判负。**默认不通读** |
 | `skill/avbox-playback-service-spec.md` | **播放服务化 Spec(2026-10-06 重写为 as-built)**：播放器所有权归前台服务的**现状架构** —— `PlaybackService` 托管 + `PlaybackEngine` 持有 + 页面只挂摘；组件职责表、所有权/线程模型、挂摘协议与运行机制(遮黑帧 / 归属判定 / 内核复用 / 进度落盘 / 媒体会话与 FGS / 直播接管 / 预载 / 渲染宿主)、D1–D9 决策、风险登记、**§4 真机走查清单(编号 1–14 稳定;15–18 为 M7 换代新增,19 服务回收后内核去留、20 投屏「只解析」加固)**、P0–P5 与 M7/M10 实施记录 | 改动播放器归属/跨页复用/后台播放与通知/播放页职责划分/播放栈内核前**必读**;§4 是走查基线 |
 | `skill/avbox-i18n-spec.md` | **多语言适配 Spec(四语全部落地:简体 / 英语 / 繁體台灣 / 繁體香港,代码完成待真机走查;2026-09-22)**：四语现状盘点(645 处硬编码文案、453 条去重)、中文参与数据与逻辑的红线清单(R1–R13)、资源组织与命名约定 + **§3.3 术语表**、`LanguageManager`+KV 方案与三处 Context 包裹、**`Trans` 门控(语言签名懒重建)**、D1–D6 决策点、四步(按语言)实施与进度表、验收清单与风险 | 改动文案/新增 UI 文案/做多语言前**必读**;§1.3 与 §9 是红线 |
 | `skill/history/steps.md` | **历史归档**：Step 0–7 改造实施记录、Step 1 删除清单实际对账 | 按需检索：某类/布局/依赖当初为什么删、某步架构决策 |
@@ -80,6 +82,7 @@ Select-String -Path skill\history\features.md -Pattern '配置管理页' -Contex
 
 # 已知高危约束（动手前扫一眼，详见 spec）
 
+- **ISO 链路的两个"包装层"雷区**：①`ExtractorOutput.endTracks()` 一旦被转发，media3 就把之后新声明的轨丢进 `DiscardingTrackOutput` ⇒ 想延迟声明必须**扣住 `endTracks()`**；②任何 `TrackOutput` 包装层**不得扣留 sample data**（`H264Reader` 在发 Format 之前就写数据，扣了会让样本绝对位置变负，抛 `IndexOutOfBoundsException: off=...`）。另外"声明了轨却拿不到 Format"会卡死 `prepare`（media3 内部 4s 计时器，无 API）。三条都在 `avbox-iso-playback-spec.md` §4-C1..C3。
 - **依赖裁剪不得只看宿主源码静态引用**：动态加载的爬虫 jar 需要宿主提供 gson / okhttp / **zxing** 等，删了会在运行期崩（spec §6.3）。
 - **Exo 帧率匹配必须保持关闭**（`disableFrameRateMatching()`）：否则 ROM 会把整机刷新率降到 60Hz，表现为"播放时卡顿"（spec §6.1）。
 - **爬虫阻塞调用必须在 IO 线程**（spec §6.2）。

@@ -306,6 +306,7 @@ fongmi 的关键实现点(仍具参考价值):服务侧建/释放内核、`bindP
 | 2026-10-08 | 切页后进度条卡 0、不可拖动 | `contentUrl` 是 per-page 控制器字段而 `MyVideoView` 引擎共享;接管同一播放不重下 url ⇒ `onContentUrlSet` 从不调用 ⇒ `staleContent` 恒真 ⇒ `state.position/duration` 不写。修法 = 在 `PlayContainer.setData` 的 `isSamePlaybackOwned` 分支播种 `contentUrl`(该判定要求内容 key 相同,**只在同一内容时为真**,故换片时不会误放行;初版播在 `setKernelProvider` 会让换片时进度条闪回上一部,已作废) |
 | 2026-10-09 | 音乐页往返后画面卡/黑 4~10s(surface + 开画质时必现) | 音乐页停视频解码 ⇒ 退出时渲染器重建、解码器从当前位置继续但未对齐关键帧,只能干等下一个 I 帧(实测 4~10s;空洞期系统 GL 层 `EglImage` 零活动为证)。修法 = 音乐页不再停解码、容器不搬进 1x1 槽位(用户拍板),退出零重建;旧"改切 TextureView"分支同步删除 |
 | 2026-10-09 | surface / texture 两模式下音乐页往返触发 `Unexpected runtime error`(NPE) | 输出面尺寸信令抢跑:media3 `MediaCodecVideoRenderer.handleMessage` 对空输出面 `checkNotNull`。修法 = `outputSurfacePresent` 独立标志 + 面未就绪时记账延后补发 + renderer 侧丢弃空面消息(见 §3.8 末条) |
+| 2026-10-20 | 缓冲期进度回调自旋 **≈390 次/秒** | `VideoPlayerController.onProgressTick` 的"秒对齐"在位置停在 `x998ms` 且 `isPlaying` 仍为 true 时算出 2ms 间隔,位置不推进 ⇒ 每 2ms 一次 Handler 回调,实测 3 秒 1161 行 `echo-progress-tick`(位置恒 117998)。修法 = 抽出纯判定 `ProgressTickDelay.next(positionMs, speed)`,下限锁 **200ms**(速度换算后仍按秒对齐),4 组单测 |
 
 ## 8. 修订记录
 

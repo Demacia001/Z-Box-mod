@@ -121,3 +121,5 @@ logs/
 日志/
 .kotlin/
 文档/
+.deepseek/
+.iso_forensics/
