@@ -21,6 +21,7 @@ import com.github.tvbox.osc.player.MyVideoView
 import com.github.tvbox.osc.player.state.LockVisibility
 import com.github.tvbox.osc.player.state.PlayerUiState
 import com.github.tvbox.osc.player.state.PlayState
+import com.github.tvbox.osc.player.state.VideoRect
 import com.github.tvbox.osc.player.state.VideoSizeGate
 import com.github.tvbox.osc.player.ui.PlayerSurfaceHost
 import com.github.tvbox.osc.player.ui.VideoGestureHandler
@@ -301,6 +302,13 @@ class VideoPlayerController(
         initOrientationState()
     }
 
+    override fun onVideoRectChanged(left: Int, top: Int, width: Int, height: Int) {
+        val rect = VideoRect(left, top, width, height)
+        if (rect.empty) return
+        if (rect == state.videoRect) return
+        state.videoRect = rect
+    }
+
     /** 对应原 View.onDetachedFromWindow：宿主被摘除时清理挂起的回调。 */
     internal fun onHostDetached() {
         uiHandler.removeCallbacks(progressRunnable)
@@ -397,9 +405,7 @@ class VideoPlayerController(
         if (state.dragging) return
         if (view?.isPlaying != true) return
         progressTicking = true
-        val speed = view.speed.takeIf { it > 0f } ?: 1f
-        val delayMs = ((1000 - state.position % 1000) / speed).toLong().coerceAtLeast(1L)
-        uiHandler.postDelayed(progressRunnable, delayMs)
+        uiHandler.postDelayed(progressRunnable, ProgressTickDelay.next(state.position, view.speed))
     }
 
     override fun startProgress() {

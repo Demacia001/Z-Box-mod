@@ -205,6 +205,10 @@ open class AppPlayerView @JvmOverloads constructor(
             0,
             LayoutParams(LayoutParams.MATCH_PARENT, LayoutParams.MATCH_PARENT, Gravity.CENTER),
         )
+        render.getView().addOnLayoutChangeListener { _, l, t, r, b, _, _, _, _ ->
+            notifyVideoRect(l, t, r - l, b - t)
+        }
+        render.getView().post { notifyVideoRect() }
     }
 
     protected fun startPrepare(reset: Boolean) {
@@ -571,6 +575,8 @@ open class AppPlayerView @JvmOverloads constructor(
          * 纯 Compose 控制器本身不是 View，应覆写此方法返回其 ComposeView 宿主。
          */
         fun controllerView(): View? = this as? View
+
+        fun onVideoRectChanged(left: Int, top: Int, width: Int, height: Int) = Unit
     }
 
     protected var mVideoController: VideoControllerHost? = null
@@ -582,6 +588,7 @@ open class AppPlayerView @JvmOverloads constructor(
         val old = mVideoController
         old?.controllerView()?.let { mPlayerContainer.removeView(it) }
         mVideoController = controller
+        lastVideoRect = null
         if (controller != null) {
             controller.controllerView()?.let { attach ->
                 mPlayerContainer.addView(
@@ -595,7 +602,30 @@ open class AppPlayerView @JvmOverloads constructor(
             if (state != PlayState.IDLE && state != PlayState.ERROR) {
                 controller.startProgress()
             }
+            notifyVideoRect()
         }
+    }
+
+    private var lastVideoRect: IntArray? = null
+
+    override fun onLayout(changed: Boolean, left: Int, top: Int, right: Int, bottom: Int) {
+        super.onLayout(changed, left, top, right, bottom)
+        notifyVideoRect()
+    }
+
+    private fun notifyVideoRect() {
+        val view = mRenderView?.getView() ?: return
+        notifyVideoRect(view.left, view.top, view.width, view.height)
+    }
+
+    private fun notifyVideoRect(left: Int, top: Int, width: Int, height: Int) {
+        val controller = mVideoController ?: return
+        if (width <= 0 || height <= 0) return
+        val rect = intArrayOf(left, top, width, height)
+        if (rect.contentEquals(lastVideoRect)) return
+        lastVideoRect = rect
+        LOG.i("echo-render-rect:" + left + "," + top + ":" + width + "x" + height)
+        controller.onVideoRectChanged(left, top, width, height)
     }
 
     open fun releaseController(): VideoControllerHost? {

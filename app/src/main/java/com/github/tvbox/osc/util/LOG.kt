@@ -19,7 +19,11 @@ object LOG {
     private val FILE_LOG = BuildConfig.DEBUG
     private val FILE_LOG_PREFIXES = arrayOf("echo-preload", "echo-setDataSource", "echo-play-cache", "echo-kv", "echo-progress", "echo-bar-draw", "echo-exo", "echo-music", "echo-lyric", "echo-sub", "echo-danmu", "echo-p2", "echo-p3", "echo-p4", "echo-p5", "clearCache", "echo--jar", "echo-local-src", "echo-setTrack", "echo-autoRetry", "echo-player", "echo-switch", "echo-goPlayUrl", "echo-history", "echo-iso", "echo-render", "echo-surface", "echo-output-size", "echo-picture", "echo-anime4k", "echo--list", "echo--getList", "echo--parse", "echo--getSort", "echo--sort", "echo-proxy", "echo-home-backdrop", "echo-cast", "echo-resolvePlayUrl", "echo-playM3u8", "echo-tmdb", "echo-live", "echo-load", "echo-zero-start", "echo-storage")
     private const val FILE_LOG_NAME = "preload_debug.log"
+    private const val FILE_LOG_BACKUP = ".1"
+    internal const val FILE_LOG_MAX_BYTES = 8L * 1024 * 1024
     private var fileLogExecutor: ExecutorService? = null
+
+    internal fun shouldRotateLog(sizeBytes: Long): Boolean = sizeBytes >= FILE_LOG_MAX_BYTES
 
     private fun fileLog(level: String, msg: String?) {
         if (!FILE_LOG || msg == null) return
@@ -39,7 +43,14 @@ object LOG {
         try {
             executor?.execute {
                 try {
-                    FileWriter(File(requireNotNull(AppContextHolder.context()) { "app context not initialized" }.filesDir, FILE_LOG_NAME), true).use { writer ->
+                    val dir = requireNotNull(AppContextHolder.context()) { "app context not initialized" }.filesDir
+                    val file = File(dir, FILE_LOG_NAME)
+                    if (shouldRotateLog(file.length())) {
+                        val backup = File(dir, FILE_LOG_NAME + FILE_LOG_BACKUP)
+                        if (backup.exists()) backup.delete()
+                        file.renameTo(backup)
+                    }
+                    FileWriter(file, true).use { writer ->
                         writer.write(line + "\n")
                     }
                 } catch (ignored: Throwable) {

@@ -5,12 +5,6 @@ import com.github.tvbox.osc.util.KV
 
 object IsoSettings {
 
-    fun enabled(): Boolean = KV.get(HawkConfig.ISO_PLAYBACK, HawkConfig.ISO_PLAYBACK_DEFAULT)
-
-    fun setEnabled(value: Boolean) {
-        KV.put(HawkConfig.ISO_PLAYBACK, value)
-    }
-
     fun lpcmEnabled(): Boolean = KV.get(HawkConfig.ISO_LPCM, HawkConfig.ISO_LPCM_DEFAULT)
 
     fun setLpcmEnabled(value: Boolean) {

@@ -14,7 +14,11 @@ import java.util.concurrent.FutureTask
 
 internal data class IsoProbe(val totalLength: Long, val firstBytes: ByteArray)
 
-internal data class IsoVolumeInfo(val totalLength: Long, val target: IsoPlayTarget)
+internal data class IsoVolumeInfo(
+    val totalLength: Long,
+    val selection: IsoSelection,
+    val locator: IsoLocator? = null,
+)
 
 internal class IsoResolver(
     internal val logger: (String) -> Unit = {},
@@ -30,22 +34,71 @@ internal class IsoResolver(
         return existing ?: value
     }
 
-    fun resolve(probe: IsoProbe, reader: RangeBlockReader): IsoVolumeInfo {
+    fun resolve(probe: IsoProbe, reader: RangeBlockReader, seekMs: Long = 0L): IsoVolumeInfo {
         val key = isoFingerprint(probe.totalLength, probe.firstBytes)
-        return try {
-            IsoVolumeCache.load(key) { parse(probe.totalLength, reader) }
+        val info = try {
+            IsoVolumeCache.load(key) { loadVolume(key, probe.totalLength, reader) }
         } catch (e: IsoFormatException) {
             logger("echo-iso-error:${e.message}")
             throw e
         }
+        if (seekMs <= 0L) return info
+        val aligned = info.locator?.locateSeek(info.selection, seekMs)
+        if (aligned == null) {
+            logger("echo-iso-seek-rap-miss:$seekMs:${info.selection.segments.size}")
+            return info
+        }
+        logger(
+            "echo-iso-seek-rap:${seekMs}:${aligned.baseMs}:" +
+                "${aligned.primary.name}:${aligned.primary.startOffset}:" +
+                "segments=${aligned.segments.size}",
+        )
+        return info.copy(selection = aligned)
     }
 
-    private fun parse(totalLength: Long, reader: RangeBlockReader): IsoVolumeInfo {
+    private fun loadVolume(key: String, totalLength: Long, reader: RangeBlockReader): IsoVolumeInfo {
+        val cached = IsoDiskCache.load(key)
+        if (cached != null) {
+            try {
+                val locator = IsoLocator(CachedVolume(cached.directories, reader))
+                val selection = locator.locateSelection()
+                logger("echo-iso-cache-hit:${cached.directories.size}:${selection.segments.size}")
+                IsoPrepare.schedule(key, locator, selection, null)
+                return IsoVolumeInfo(totalLength, selection, locator)
+            } catch (e: IsoFormatException) {
+                logger("echo-iso-cache-stale:${e.message}")
+                IsoDiskCache.evict(key)
+            }
+        }
+        return parse(key, totalLength, reader)
+    }
+
+    private fun parse(key: String, totalLength: Long, reader: RangeBlockReader): IsoVolumeInfo {
         val volume = UdfVolume.open(reader, totalLength) { logger("echo-iso-udf-$it") }
-        val target = IsoLocator(volume).locate()
+        val locator = IsoLocator(volume)
+        val selection = locator.locateSelection()
+        val target = selection.primary
         logger("echo-iso-udf-ok:${target.m2tsOffset}:${target.m2tsLength}")
         logger("echo-iso-target:${target.name}:${target.m2tsOffset}:${target.m2tsLength}")
-        return IsoVolumeInfo(totalLength, target)
+        val cached = buildSnapshot(volume)
+        IsoPrepare.schedule(key, locator, selection, cached)
+        return IsoVolumeInfo(totalLength, selection, locator)
+    }
+
+    private fun buildSnapshot(volume: UdfVolume): ByteArray? {
+        val started = System.currentTimeMillis()
+        val snapshot = try {
+            volume.snapshot(logger)
+        } catch (e: Exception) {
+            logger("echo-iso-cache-fail:${e.javaClass.simpleName}:${e.message}")
+            return null
+        } ?: run {
+            logger("echo-iso-cache-incomplete")
+            return null
+        }
+        val bytes = snapshot.encode()
+        logger("echo-iso-cache-build:${bytes.size}:${System.currentTimeMillis() - started}")
+        return bytes
     }
 
     private fun readProbe(uri: Uri, factory: DataSource.Factory): IsoProbe {
@@ -98,6 +151,16 @@ internal class DataSourceRangeReader(
 ) : RangeBlockReader {
 
     override fun read(start: Long, length: Int): ByteArray {
+        return try {
+            readOnce(start, length)
+        } catch (e: IOException) {
+            logAuthFailure(e, logger)
+            if (e is HttpDataSource.InvalidResponseCodeException) throw e
+            readOnce(start, length)
+        }
+    }
+
+    private fun readOnce(start: Long, length: Int): ByteArray {
         val source = factory.createDataSource()
         try {
             source.open(

@@ -7,7 +7,6 @@ import com.github.tvbox.osc.api.ApiConfig
 import com.github.tvbox.osc.api.DanmakuApi
 import com.github.tvbox.osc.io.FileUtils
 import com.github.tvbox.osc.player.engine.MediaSources
-import com.github.tvbox.osc.player.engine.iso.IsoSettings
 import com.github.tvbox.osc.sourcedata.SourceViewModel
 import com.github.tvbox.osc.util.LOG
 import java.nio.charset.StandardCharsets
@@ -126,13 +125,6 @@ class PlaybackFetch(private val controller: PlaybackController) {
                     return
                 }
                 val iso = MediaSources.isIsoFormat(info.optString("format", "")) || MediaSources.isIsoUri(url)
-                if (iso && !IsoSettings.enabled()) {
-                    LOG.i("echo-iso-unsupported: format=" + info.optString("format", ""))
-                    controller.cancelPlayTimeout()
-                    view?.showParse(false)
-                    view?.showTip(PlaybackController.str(R.string.player_iso_unsupported), false, true)
-                    return
-                }
                 if (iso) LOG.i("echo-iso-play: format=" + info.optString("format", ""))
                 controller.setUserPickedLine(false)
                 val danmaku = info.optString("danmaku", "").trim { it <= ' ' }

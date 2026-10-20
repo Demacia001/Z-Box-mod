@@ -13,6 +13,7 @@ import androidx.media3.common.MimeTypes
 import androidx.media3.common.PlaybackException
 import androidx.media3.common.PlaybackParameters
 import androidx.media3.common.Player
+import androidx.media3.common.Timeline
 import androidx.media3.common.Tracks
 import androidx.media3.common.VideoFrameProcessor
 import androidx.media3.common.VideoSize
@@ -39,7 +40,10 @@ import com.github.tvbox.osc.player.TrackInfoBean
 import com.github.tvbox.osc.player.effect.PictureEffects
 import com.github.tvbox.osc.player.effect.RedrawPolicy
 import com.github.tvbox.osc.player.effect.ReplayableCacheVideoRenderer
-import com.github.tvbox.osc.player.engine.iso.IsoSettings
+import com.github.tvbox.osc.player.engine.iso.IsoPlaylistState
+import com.github.tvbox.osc.player.engine.iso.IsoSeekAction
+import com.github.tvbox.osc.player.engine.iso.IsoSessionSignal
+import com.github.tvbox.osc.player.engine.iso.isoSeekAction
 import com.github.tvbox.osc.player.state.KernelPlayback
 import com.github.tvbox.osc.util.LOG
 import okhttp3.OkHttpClient
@@ -98,6 +102,7 @@ class PlayerEngine(
 
     private var retriedAsBdav = false
 
+    @Volatile
     private var isoSession = false
 
     private var useDiskCache = false
@@ -107,6 +112,9 @@ class PlayerEngine(
 
     @Volatile
     private var startPositionApplied = false
+
+    @Volatile
+    private var isoSourceBuilt = false
 
     @Volatile
     private var videoEffectsOpen = false
@@ -302,15 +310,16 @@ class PlayerEngine(
         currentPlayPath = playPath
         currentHeaders = copyHeaders(headers)
         isoSession = MediaSources.isoHeaders(currentHeaders)
+        isoSourceBuilt = false
         resetSessionFlags()
         trackSelection.resetForNewContent()
         resetPlaybackStats()
-        mediaSource = mediaSources.getMediaSource(playPath, copyHeaders(currentHeaders))
-
-        if (MediaSources.isoHeaders(currentHeaders)) {
+        if (isoSession) {
+            mediaSource = null
             LOG.i("echo-iso-play-skip-cache: $playPath")
             return
         }
+        mediaSource = mediaSources.getMediaSource(playPath, copyHeaders(currentHeaders))
         val preloadTarget = config.preloadTargetChecker(playPath, headers)
         val playCacheWanted = useDiskCache && config.playCacheEnabled()
         val mode = SourcePolicy.resolveCacheMode(
@@ -356,11 +365,9 @@ class PlayerEngine(
     }
 
     fun setStartPosition(positionMs: Long) {
-        if (isoSession && positionMs > 0) {
-            LOG.i("echo-iso-start-zero: drop resume $positionMs")
-        }
-        startPositionMs = if (isoSession) 0L else maxOf(0L, positionMs)
+        startPositionMs = maxOf(0L, positionMs)
         startPositionApplied = false
+        isoSourceBuilt = false
     }
 
     val isStartPositionApplied: Boolean
@@ -368,9 +375,32 @@ class PlayerEngine(
 
     fun prepare(): Boolean {
         val exo = internalPlayer ?: return false
-        val source = mediaSource ?: return false
+        val source: MediaSource
+        var start = startPositionMs
+        if (isoSession && !retriedAsBdav && (!isoSourceBuilt || mediaSource == null)) {
+            val path = currentPlayPath
+            val headers = currentHeaders
+            if (path == null || headers == null) return false
+            val seekMs = if (ISO_SEEK_RAP_ENABLED) startPositionMs else 0L
+            if (seekMs == 0L && startPositionMs > 0L) {
+                LOG.i("echo-iso-start-zero: drop resume $startPositionMs")
+            }
+            val built = try {
+                mediaSources.getIsoMediaSource(path, copyHeaders(headers), seekMs)
+            } catch (e: Exception) {
+                LOG.e("echo-iso-prepare-fail:$seekMs ${e.message}")
+                return false
+            }
+            mediaSource = built
+            isoSourceBuilt = true
+            LOG.i("echo-iso-prepare-rap:$seekMs")
+            source = built
+        } else {
+            source = mediaSource ?: return false
+        }
+        if (isoSession && !retriedAsBdav) start = 0L
         speedPlaybackParameters?.let { exo.setPlaybackParameters(it) }
-        exo.setMediaSource(source, startPositionMs)
+        exo.setMediaSource(source, start)
         startPositionApplied = true
         exo.prepare()
         return true
@@ -393,11 +423,53 @@ class PlayerEngine(
     }
 
     fun seekTo(positionMs: Long) {
-        if (isoSession && positionMs > ISO_SEEK_ZERO_TOLERANCE_MS) {
-            LOG.i("echo-iso-seek-blocked:$positionMs")
-            return
+        val exo = internalPlayer ?: return
+        val action = isoSeekAction(
+            isoSession,
+            IsoPlaylistState.seekable(),
+            positionMs,
+            currentPosition,
+            ISO_SEEK_ZERO_TOLERANCE_MS,
+            ISO_SEEK_RAP_ENABLED,
+        )
+        when (action) {
+            IsoSeekAction.ALLOW -> exo.seekTo(positionMs)
+            IsoSeekAction.BLOCK -> LOG.i("echo-iso-seek-blocked:$positionMs")
+            IsoSeekAction.REBUILD -> {
+                val start = IsoPlaylistState.windowStartMs(exo.currentMediaItemIndex)
+                val duration = IsoPlaylistState.windowDurationMs(exo.currentMediaItemIndex)
+                val local = start?.let { positionMs - it }
+                if (local != null && duration != null && local >= 0L && local < duration) {
+                    LOG.i("echo-iso-seek-inperiod:$positionMs:$local:$duration")
+                    exo.seekTo(local)
+                } else if (!rebuildIsoMediaSource(positionMs)) {
+                    LOG.i("echo-iso-seek-cross-fail:$positionMs:$start:$duration")
+                }
+            }
         }
-        internalPlayer?.seekTo(positionMs)
+    }
+
+    private fun rebuildIsoMediaSource(positionMs: Long): Boolean {
+        val exo = internalPlayer ?: return false
+        if (retriedAsBdav) return false
+        val path = currentPlayPath ?: return false
+        val headers = currentHeaders ?: return false
+        val source = try {
+            mediaSources.getIsoMediaSource(path, copyHeaders(headers), positionMs)
+        } catch (e: Exception) {
+            LOG.e("echo-iso-seek-rebuild-fail:$positionMs ${e.message}")
+            return false
+        }
+        val keepPlaying = exo.playWhenReady
+        mediaSource = source
+        isoSourceBuilt = true
+        speedPlaybackParameters?.let { exo.setPlaybackParameters(it) }
+        exo.setMediaSource(source, 0L)
+        startPositionApplied = true
+        exo.prepare()
+        exo.playWhenReady = keepPlaying
+        LOG.i("echo-iso-seek-rap:$positionMs playing=$keepPlaying")
+        return true
     }
 
     fun reset() {
@@ -455,10 +527,56 @@ class PlayerEngine(
         }
 
     val currentPosition: Long
-        get() = internalPlayer?.currentPosition ?: 0L
+        get() {
+            val player = internalPlayer ?: return 0L
+            val offset = isoWindowOffsetMs(player) ?: return player.currentPosition
+            return offset + player.currentPosition
+        }
 
     val duration: Long
-        get() = internalPlayer?.duration ?: 0L
+        get() {
+            val player = internalPlayer ?: return 0L
+            if (isoSession || IsoSessionSignal.escalated()) {
+                val known = IsoPlaylistState.durationMs()
+                if (known > 0L) return known
+            }
+            val total = isoTotalDurationMs(player)
+            return if (total > 0L) total else player.duration
+        }
+
+    private fun isoWindowOffsetMs(player: ExoPlayer): Long? {
+        if (!isoSession && !IsoSessionSignal.escalated()) return null
+        IsoPlaylistState.windowStartMs(player.currentMediaItemIndex)?.let { return it }
+        val timeline = player.currentTimeline
+        val count = timeline.windowCount
+        if (count <= 1) return null
+        val index = player.currentMediaItemIndex
+        if (index <= 0) return 0L
+        var offset = 0L
+        val window = Timeline.Window()
+        for (i in 0 until index) {
+            timeline.getWindow(i, window)
+            if (window.durationMs == C.TIME_UNSET) return null
+            offset += window.durationMs
+        }
+        return offset
+    }
+
+    private fun isoTotalDurationMs(player: ExoPlayer): Long {
+        val timeline = player.currentTimeline
+        val count = timeline.windowCount
+        if (count <= 0) return C.TIME_UNSET
+        if (count == 1) return player.duration
+        if (!isoSession && !IsoSessionSignal.escalated()) return C.TIME_UNSET
+        var total = 0L
+        val window = Timeline.Window()
+        for (i in 0 until count) {
+            timeline.getWindow(i, window)
+            if (window.durationMs == C.TIME_UNSET) return C.TIME_UNSET
+            total += window.durationMs
+        }
+        return total
+    }
 
     val bufferedPercentage: Int
         get() = internalPlayer?.bufferedPercentage ?: 0
@@ -839,7 +957,7 @@ class PlayerEngine(
     private fun retryAsBdav(error: PlaybackException): Boolean {
         val exo = internalPlayer ?: return false
         val path = currentPlayPath ?: return false
-        if (retriedAsBdav || isoSession || !IsoSettings.enabled()) {
+        if (retriedAsBdav || isoSession) {
             return false
         }
         if (error.errorCode != PlaybackException.ERROR_CODE_PARSING_CONTAINER_UNSUPPORTED) {
@@ -885,6 +1003,7 @@ class PlayerEngine(
         const val ERROR_KIND_NETWORK = 1
         const val ERROR_KIND_DECODE = 2
         const val ISO_SEEK_ZERO_TOLERANCE_MS = 1000L
+        const val ISO_SEEK_RAP_ENABLED = true
 
         @JvmStatic
         fun classifyError(codeName: String?): Int {

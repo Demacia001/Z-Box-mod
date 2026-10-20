@@ -1,5 +1,7 @@
 package com.github.tvbox.osc.player.engine.iso
 
+import com.github.tvbox.osc.util.LOG
+
 internal class UdfParser(
     private val reader: RangeBlockReader,
     private val blockSize: Int,
@@ -48,6 +50,9 @@ internal class UdfParser(
             is EntryData.Extents -> data.extents
             is EntryData.Embedded -> emptyList()
         }
+        if (infoLength > LARGE_FILE_LIMIT || (extents.isEmpty() && infoLength > 0)) {
+            logFileEntry(location, tag, flags, extendedLength, allocationLength, infoLength, raw, dataOffset + extendedLength)
+        }
         val length = if (infoLength > 0) infoLength else extents.sumOf { it.length }
         val parsed = ParsedFileEntry(fileType, length, extents, data)
         cache[location] = parsed
@@ -83,6 +88,17 @@ internal class UdfParser(
         if (bytes.size < length) throw IsoFormatException("short read: ${bytes.size}/$length")
         remember(start, bytes)
         return bytes.copyOfRange(0, length)
+    }
+
+    fun prefetch(start: Long, length: Int): Boolean {
+        if (length <= 0 || start < 0 || start >= totalLength) return false
+        val size = minOf(length.toLong(), totalLength - start).toInt()
+        if (size <= 0) return false
+        if (cached(start, size) != null) return false
+        val bytes = reader.read(start, size)
+        if (bytes.isEmpty()) return false
+        remember(start, bytes)
+        return true
     }
 
     private fun cached(start: Long, length: Int): ByteArray? {
@@ -175,9 +191,30 @@ internal class UdfParser(
         return extents
     }
 
+    private fun logFileEntry(
+        location: FileLocation,
+        tag: Int,
+        flags: Int,
+        extendedLength: Int,
+        allocationLength: Int,
+        infoLength: Long,
+        raw: ByteArray,
+        descriptorOffset: Int,
+    ) {
+        val word0 = if (allocationLength >= 8 && descriptorOffset + 8 <= raw.size) le32(raw, descriptorOffset) else -1L
+        val block0 = if (allocationLength >= 12 && descriptorOffset + 12 <= raw.size) le32(raw, descriptorOffset + 4) else -1L
+        val word1 = if (allocationLength >= 16 && descriptorOffset + 16 <= raw.size) le32(raw, descriptorOffset + 8) else -1L
+        LOG.i(
+            "echo-iso-udf-fe:" + location.block + ":tag=" + tag + ":flags=" + flags +
+                ":ad=" + (flags and 0x7) + ":ea=" + extendedLength + ":adLen=" + allocationLength +
+                ":len=" + infoLength + ":w0=" + word0 + ":blk0=" + block0 + ":w1=" + word1,
+        )
+    }
+
     private companion object {
         const val MAX_FILE_ENTRY_BLOCKS = 4
         const val PREFETCH_BYTES = 32 * 1024
-        const val MAX_SPANS = 8
+        const val MAX_SPANS = 16
+        const val LARGE_FILE_LIMIT = 4L * 1024L * 1024L * 1024L
     }
 }

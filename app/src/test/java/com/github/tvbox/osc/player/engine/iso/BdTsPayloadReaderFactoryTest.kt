@@ -1,5 +1,14 @@
 package com.github.tvbox.osc.player.engine.iso
 
+import androidx.media3.common.C
+import androidx.media3.common.DataReader
+import androidx.media3.common.Format
+import androidx.media3.common.MimeTypes
+import androidx.media3.common.util.ParsableByteArray
+import androidx.media3.common.util.TimestampAdjuster
+import androidx.media3.extractor.ExtractorOutput
+import androidx.media3.extractor.SeekMap
+import androidx.media3.extractor.TrackOutput
 import androidx.media3.extractor.ts.DefaultTsPayloadReaderFactory
 import androidx.media3.extractor.ts.PesReader
 import androidx.media3.extractor.ts.TsExtractor
@@ -131,6 +140,98 @@ class BdTsPayloadReaderFactoryTest {
         )
     }
 
+    @Test
+    fun lpcm_declaresProvisionalRawFormat() {
+        val format = provisionalFormatOf(BdTsPayloadReaderFactory.STREAM_TYPE_LPCM)
+        assertEquals(MimeTypes.AUDIO_RAW, format.sampleMimeType)
+        assertEquals(48_000, format.sampleRate)
+        assertEquals(2, format.channelCount)
+        assertEquals(C.ENCODING_PCM_16BIT, format.pcmEncoding)
+    }
+
+    @Test
+    fun trueHd_declaresProvisionalAc3Format() {
+        val format = provisionalFormatOf(BdTsPayloadReaderFactory.STREAM_TYPE_TRUEHD)
+        assertEquals(MimeTypes.AUDIO_AC3, format.sampleMimeType)
+        assertEquals(48_000, format.sampleRate)
+        assertEquals(6, format.channelCount)
+    }
+
+    @Test
+    fun ac3AndEac3_declareMatchingProvisionalFormats() {
+        assertEquals(
+            MimeTypes.AUDIO_AC3,
+            provisionalFormatOf(BdTsPayloadReaderFactory.STREAM_TYPE_AC3).sampleMimeType,
+        )
+        assertEquals(
+            MimeTypes.AUDIO_E_AC3,
+            provisionalFormatOf(BdTsPayloadReaderFactory.STREAM_TYPE_EAC3).sampleMimeType,
+        )
+    }
+
+    @Test
+    fun dts_declaresProvisionalDtsFormat() {
+        val format = provisionalFormatOf(BdTsPayloadReaderFactory.STREAM_TYPE_DTS_HD_MA)
+        assertEquals(MimeTypes.AUDIO_DTS, format.sampleMimeType)
+        assertEquals(6, format.channelCount)
+    }
+
+    @Test
+    fun pgs_declaresOnlyItsOwnFormat() {
+        val output = FormatRecordingOutput()
+        requireNotNull(
+            factory.createPayloadReader(
+                BdTsPayloadReaderFactory.STREAM_TYPE_PGS,
+                esInfo(BdTsPayloadReaderFactory.STREAM_TYPE_PGS),
+            ),
+        ).init(TimestampAdjuster(0L), output, TsPayloadReader.TrackIdGenerator(PROGRAM, TRACK_ID, 1))
+
+        assertEquals(1, output.formats.size)
+        assertEquals(MimeTypes.APPLICATION_PGS, output.formats[0].sampleMimeType)
+    }
+
+    private fun provisionalFormatOf(streamType: Int): Format {
+        val output = FormatRecordingOutput()
+        val reader = requireNotNull(factory.createPayloadReader(streamType, esInfo(streamType)))
+        reader.init(TimestampAdjuster(0L), output, TsPayloadReader.TrackIdGenerator(PROGRAM, TRACK_ID, 1))
+        assertEquals("streamType=$streamType formats=${output.formats}", 1, output.formats.size)
+        return output.formats[0]
+    }
+
+    private class FormatRecordingOutput : ExtractorOutput {
+
+        val formats = ArrayList<Format>()
+
+        override fun track(id: Int, type: Int): TrackOutput = object : TrackOutput {
+            override fun format(format: Format) {
+                formats.add(format)
+            }
+
+            override fun sampleData(
+                input: DataReader,
+                length: Int,
+                allowEndOfInput: Boolean,
+                sampleDataPart: Int,
+            ): Int = length
+
+            override fun sampleData(data: ParsableByteArray, length: Int, sampleDataPart: Int) {
+                data.skipBytes(length)
+            }
+
+            override fun sampleMetadata(
+                timeUs: Long,
+                flags: Int,
+                size: Int,
+                offset: Int,
+                cryptoData: TrackOutput.CryptoData?,
+            ) = Unit
+        }
+
+        override fun endTracks() = Unit
+
+        override fun seekMap(seekMap: SeekMap) = Unit
+    }
+
     private fun esInfo(streamType: Int) = TsPayloadReader.EsInfo(
         streamType,
         null,
@@ -141,5 +242,7 @@ class BdTsPayloadReaderFactoryTest {
 
     private companion object {
         const val SCTE35_STREAM_TYPE = 0x86
+        const val PROGRAM = 1
+        const val TRACK_ID = 0x1100
     }
 }

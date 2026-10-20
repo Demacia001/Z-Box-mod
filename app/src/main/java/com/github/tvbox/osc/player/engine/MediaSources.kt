@@ -16,16 +16,24 @@ import androidx.media3.exoplayer.hls.HlsMediaSource
 import androidx.media3.exoplayer.rtsp.RtspMediaSource
 import androidx.media3.exoplayer.source.MediaSource
 import androidx.media3.exoplayer.source.ProgressiveMediaSource
+import androidx.media3.exoplayer.source.ConcatenatingMediaSource
+import androidx.media3.exoplayer.source.ShuffleOrder
 import com.github.tvbox.osc.net.OkGoHelper
 import com.github.tvbox.osc.player.engine.iso.BdavDataSource
 import com.github.tvbox.osc.player.engine.iso.BdavLoadErrorPolicy
 import com.github.tvbox.osc.player.engine.iso.IsoDataSource
 import com.github.tvbox.osc.player.engine.iso.IsoExtractorsFactory
+import com.github.tvbox.osc.player.engine.iso.IsoPlaylistState
+import com.github.tvbox.osc.player.engine.iso.IsoPrepare
+import com.github.tvbox.osc.player.engine.iso.IsoSelection
 import com.github.tvbox.osc.player.engine.iso.IsoThroughput
 import com.github.tvbox.osc.player.engine.iso.M2tsDataSource
+import com.github.tvbox.osc.util.LOG
 import java.util.HashMap
 import java.util.Locale
 import java.util.TreeMap
+import java.util.concurrent.atomic.AtomicBoolean
+import java.util.concurrent.atomic.AtomicReference
 import okhttp3.OkHttpClient
 
 class MediaSources(
@@ -90,15 +98,52 @@ class MediaSources(
         }
     }
 
-    private fun createIsoMediaSource(uri: String, headers: Map<String, String>?): MediaSource {
+    fun getIsoMediaSource(uri: String, headers: Map<String, String>?, seekMs: Long): MediaSource =
+        createIsoMediaSource(uri, headers, seekMs)
+
+    private fun createIsoMediaSource(
+        uri: String,
+        headers: Map<String, String>?,
+        seekMs: Long = 0L,
+    ): MediaSource {
         IsoThroughput.beginSession()
-        val dataSourceFactory = M2tsDataSource.Factory(IsoDataSource.factory(headers))
-        return ProgressiveMediaSource.Factory(dataSourceFactory, IsoExtractorsFactory())
-            .createMediaSource(buildMediaItem(uri, headers))
+        IsoPlaylistState.reset()
+        IsoPrepare.cancel()
+        val mediaItem = buildMediaItem(uri, headers)
+        val concatRef = AtomicReference<ConcatenatingMediaSource>()
+        val appended = AtomicBoolean(false)
+        val first = isoProgressiveSource(
+            mediaItem,
+            IsoDataSource.factory(headers, seekMs) { selection ->
+                if (!selection.multiSegment) return@factory
+                if (!appended.compareAndSet(false, true)) return@factory
+                val concat = concatRef.get() ?: return@factory
+                val children = selection.segments.drop(1).map { segment ->
+                    isoProgressiveSource(mediaItem, IsoDataSource.factory(headers, segment))
+                }
+                concat.addMediaSources(children)
+                LOG.i(
+                    "echo-iso-playlist-append:${children.size}:total=${selection.segments.size}:" +
+                        "duration=${selection.durationMs}",
+                )
+            },
+        )
+        val concat = ConcatenatingMediaSource(false, true, ShuffleOrder.DefaultShuffleOrder(0), first)
+        concatRef.set(concat)
+        return concat
     }
+
+    private fun isoProgressiveSource(
+        mediaItem: MediaItem,
+        factory: IsoDataSource.Factory,
+    ): MediaSource = ProgressiveMediaSource.Factory(
+        M2tsDataSource.Factory(factory),
+        IsoExtractorsFactory(),
+    ).createMediaSource(mediaItem)
 
     fun getBdavMediaSource(uri: String, headers: Map<String, String>?): MediaSource {
         IsoThroughput.beginSession()
+        IsoPlaylistState.reset()
         val dataSourceFactory = BdavDataSource.Factory(createDataSourceFactory(headers))
         return ProgressiveMediaSource.Factory(dataSourceFactory, IsoExtractorsFactory())
             .setLoadErrorHandlingPolicy(BdavLoadErrorPolicy())

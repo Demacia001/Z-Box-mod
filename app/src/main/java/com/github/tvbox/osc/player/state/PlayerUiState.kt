@@ -38,6 +38,7 @@ class PlayerUiState {
 
     var title: String by mutableStateOf("")
     var videoSize: String by mutableStateOf(VideoSizeGate.UNKNOWN)
+    var videoRect: VideoRect by mutableStateOf(VideoRect(0, 0, 0, 0))
     var videoQuality: String by mutableStateOf("")
     var sysTime: String by mutableStateOf("")
     var batteryPercent: Int by mutableStateOf(-1)
@@ -135,6 +136,15 @@ class PlayerUiState {
 }
 
 enum class LockVisibility { GONE, HIDDEN, SHOWN }
+
+data class VideoRect(
+    val left: Int,
+    val top: Int,
+    val width: Int,
+    val height: Int,
+) {
+    val empty: Boolean get() = width <= 0 || height <= 0
+}
 
 enum class ParamsTab { Playback, Picture }
 

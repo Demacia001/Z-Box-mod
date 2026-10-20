@@ -112,7 +112,6 @@ class KVKeySpec : KVDecoder.TypeRegistry {
             register(HawkConfig.KERNEL_PREWARM, false)
             register(HawkConfig.EXO_VIDEO_DYNAMIC_SCHEDULING, false)
             register(HawkConfig.PRELOAD_NEXT_EPISODE, false)
-            register(HawkConfig.ISO_PLAYBACK, false)
             register(HawkConfig.ISO_LPCM, true)
             register(HawkConfig.ISO_TRUEHD_CORE, true)
             register(HawkConfig.ISO_PGS, true)

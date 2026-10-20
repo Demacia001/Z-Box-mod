@@ -47,6 +47,13 @@ class IsoBandwidthGuardTest {
     }
 
     @Test
+    fun requiredRate_matchesGuardFormula() {
+        assertEquals(expectedRequired(), isoRequiredBytesPerSecond(TARGET, DURATION_MS))
+        assertEquals(0L, isoRequiredBytesPerSecond(0L, DURATION_MS))
+        assertEquals(0L, isoRequiredBytesPerSecond(TARGET, 0L))
+    }
+
+    @Test
     fun retryStopsOnlyAfterIsoBandwidthStop() {
         assertTrue(stopsIsoBandwidthRetry(isoSession = true, switchTried = true))
         assertFalse(stopsIsoBandwidthRetry(isoSession = false, switchTried = true))

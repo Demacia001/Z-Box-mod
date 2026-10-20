@@ -1,5 +1,8 @@
 package com.github.tvbox.osc.player.engine.iso
 
+import com.github.tvbox.osc.util.LOG
+import java.util.concurrent.atomic.AtomicLong
+
 internal class IsoThroughputWindow(
     private val clock: () -> Long = System::currentTimeMillis,
 ) {
@@ -69,15 +72,64 @@ internal class IsoThroughputWindow(
     }
 }
 
+internal class IsoBandwidthLogger(
+    private val clock: () -> Long = System::currentTimeMillis,
+) {
+
+    private var lastLogAt = 0L
+    private var logged = 0
+
+    @Synchronized
+    fun reset() {
+        lastLogAt = 0L
+        logged = 0
+    }
+
+    @Synchronized
+    fun due(): Boolean {
+        if (logged >= MAX_LOGS) return false
+        if (lastLogAt == 0L) return true
+        return clock() - lastLogAt >= INTERVAL_MS
+    }
+
+    @Synchronized
+    fun record(
+        bytesPerSecond: Long,
+        averageBytesPerSecond: Long,
+        requiredBytesPerSecond: Long,
+    ): String? {
+        if (bytesPerSecond <= 0L) return null
+        if (logged >= MAX_LOGS) return null
+        val now = clock()
+        if (lastLogAt != 0L && now - lastLogAt < INTERVAL_MS) return null
+        lastLogAt = now
+        logged++
+        return "echo-iso-bps:$bytesPerSecond:$averageBytesPerSecond:$requiredBytesPerSecond"
+    }
+
+    private companion object {
+        const val INTERVAL_MS = 10_000L
+        const val MAX_LOGS = 60
+    }
+}
+
 object IsoThroughput {
 
     private val window = IsoThroughputWindow()
+    private val bandwidthLog = IsoBandwidthLogger()
+    private val sessionBytes = AtomicLong()
 
     @Volatile
     private var targetLength = 0L
 
+    @Volatile
+    private var sessionStart = 0L
+
     fun beginSession() {
         window.reset()
+        bandwidthLog.reset()
+        sessionBytes.set(0L)
+        sessionStart = 0L
         targetLength = 0L
     }
 
@@ -87,7 +139,29 @@ object IsoThroughput {
 
     fun onRead(bytes: Int) {
         window.onRead(bytes)
+        if (bytes <= 0) return
+        val now = System.currentTimeMillis()
+        if (sessionStart == 0L) sessionStart = now
+        sessionBytes.addAndGet(bytes.toLong())
+        if (!bandwidthLog.due()) return
+        val line = bandwidthLog.record(
+            window.bytesPerSecond(),
+            averageBytesPerSecond(now),
+            isoRequiredBytesPerSecond(effectiveIsoBytes(), IsoPlaylistState.durationMs()),
+        ) ?: return
+        LOG.i(line)
     }
+
+    private fun averageBytesPerSecond(now: Long): Long {
+        val start = sessionStart
+        if (start == 0L) return 0L
+        val span = now - start
+        if (span < MIN_AVERAGE_SPAN_MS) return 0L
+        return sessionBytes.get() * MILLIS_PER_SECOND / span
+    }
+
+    private const val MIN_AVERAGE_SPAN_MS = 3_000L
+    private const val MILLIS_PER_SECOND = 1_000L
 
     fun bytesPerSecond(): Long = window.bytesPerSecond()
 

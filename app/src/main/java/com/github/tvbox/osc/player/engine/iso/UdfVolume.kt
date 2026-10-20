@@ -8,26 +8,26 @@ class UdfVolume private constructor(
     private val blockSize: Int,
     private val partitions: List<Partition>,
     private val root: IsoEntry,
-) {
+) : IsoFileSource {
 
     private val resolver: (Int, Long) -> Long = { ref, block ->
         resolveBlock(partitions, blockSize, ref, block)
     }
 
-    fun root(): IsoEntry = root
+    override fun root(): IsoEntry = root
 
-    fun list(directory: IsoEntry): List<IsoEntry> {
+    override fun list(directory: IsoEntry): List<IsoEntry> {
         if (!directory.directory) {
             throw IsoFormatException("not a directory: ${directory.name}")
         }
-        return parseDirectory(readEntryData(directory)).map { readChild(it) }
+        return parseDirectory(readEntry(directory)).map { readChild(it) }
     }
 
-    fun find(directory: IsoEntry, name: String): IsoEntry? {
+    override fun find(directory: IsoEntry, name: String): IsoEntry? {
         if (!directory.directory) {
             throw IsoFormatException("not a directory: ${directory.name}")
         }
-        val child = parseDirectory(readEntryData(directory))
+        val child = parseDirectory(readEntry(directory))
             .firstOrNull { it.name.equals(name, ignoreCase = true) }
             ?: return null
         return readChild(child)
@@ -42,24 +42,36 @@ class UdfVolume private constructor(
             )
         }
 
+    internal fun listAvailable(directory: IsoEntry): IsoListing {
+        if (!directory.directory) return IsoListing(emptyList(), 0)
+        val children = parseDirectory(readEntry(directory))
+        val entries = ArrayList<IsoEntry>(children.size)
+        var skipped = 0
+        for (child in children) {
+            val entry = try {
+                readChild(child)
+            } catch (e: IsoFormatException) {
+                skipped++
+                continue
+            }
+            entries.add(entry)
+        }
+        return IsoListing(entries, skipped)
+    }
+
     private fun parseDirectory(data: ByteArray): List<FidChild> {
         val children = ArrayList<FidChild>()
         var offset = 0
         while (offset + FID_HEADER_SIZE <= data.size) {
-            val inBlock = offset % blockSize
-            if (inBlock + FID_HEADER_SIZE > blockSize) {
-                offset = alignUp(offset, blockSize)
+            if (le16(data, offset) != TAG_FILE_IDENTIFIER) {
+                offset = nextDirectoryBlock(data, offset)
+                if (offset < 0) break
                 continue
             }
-            if (le16(data, offset) != TAG_FILE_IDENTIFIER) break
             val characteristics = data[offset + FID_CHARACTERISTICS_OFFSET].toInt() and 0xFF
             val nameLength = data[offset + FID_NAME_LENGTH_OFFSET].toInt() and 0xFF
             val implUseLength = le16(data, offset + FID_IMPL_USE_LENGTH_OFFSET)
             val recordLength = FID_HEADER_SIZE + implUseLength + nameLength
-            if (inBlock + recordLength > blockSize) {
-                offset = alignUp(offset, blockSize)
-                continue
-            }
             if (offset + recordLength > data.size) break
             if (characteristics and FID_DELETED == 0 && characteristics and FID_PARENT == 0) {
                 val child = FileLocation(
@@ -79,7 +91,16 @@ class UdfVolume private constructor(
         return children
     }
 
-    internal fun readEntryData(entry: IsoEntry): ByteArray =
+    private fun nextDirectoryBlock(data: ByteArray, offset: Int): Int {
+        val next = alignUp(offset, blockSize)
+        if (next <= offset || next + FID_HEADER_SIZE > data.size) return -1
+        return if (le16(data, next) == TAG_FILE_IDENTIFIER) next else -1
+    }
+
+    internal fun readImageRange(offset: Long, length: Int): ByteArray =
+        parser.readRange(offset, length)
+
+    override fun readEntry(entry: IsoEntry): ByteArray =
         when (val data = entry.data) {
             is EntryData.Embedded -> data.bytes
             is EntryData.Extents -> {
@@ -138,6 +159,7 @@ class UdfVolume private constructor(
                 throw IsoFormatException("unsupported block size: ${volume.blockSize}")
             }
             partitions = buildPartitions(volume, descriptors.partitions)
+            prefetchMetadata()
             logger("lvd:${volume.maps.size}")
             val fileSetLocation = volume.fileSetLocation
             val fileSet = parser.readPartitionBytes(
@@ -192,6 +214,17 @@ class UdfVolume private constructor(
             return resolved.map { it ?: throw IsoFormatException("partition map unresolved") }
         }
 
+        private fun prefetchMetadata() {
+            for (partition in partitions) {
+                if (partition !is Partition.Metadata) continue
+                for (extent in partition.extents) {
+                    if (extent.length <= 0 || extent.length > MAX_PREFETCH_BYTES) continue
+                    val started = parser.prefetch(extent.offset, extent.length.toInt())
+                    logger("prefetch:${extent.offset}+${extent.length}:${if (started) 1 else 0}")
+                }
+            }
+        }
+
         private fun physicalResolver(partitionRef: Int, block: Long): Long {
             val partition = physicalByMapIndex[partitionRef]
                 ?: throw IsoFormatException("partition not ready: $partitionRef")
@@ -206,26 +239,29 @@ class UdfVolume private constructor(
 
         private fun readVolumeRecognition(): String {
             if (totalLength < 32L * SECTOR_SIZE) throw IsoFormatException("image too small")
-            val data = parser.readRange(16L * SECTOR_SIZE, 16 * SECTOR_SIZE)
+            val data = parser.readRange(VRS_FIRST_SECTOR * SECTOR_SIZE, VRS_SECTORS * SECTOR_SIZE)
             var version: String? = null
-            for (index in 0 until 16) {
-                val offset = index * SECTOR_SIZE + 1
-                val id = String(data, offset, 5, StandardCharsets.US_ASCII)
+            for (index in 0 until VRS_SECTORS) {
+                val sector = index * SECTOR_SIZE
+                if (isBlankSector(data, sector)) break
+                val id = String(data, sector + VRS_TAG_OFFSET, VRS_TAG_LENGTH, StandardCharsets.US_ASCII)
                 when (id) {
-                    "BEA01" -> Unit
-                    "NSR02", "NSR03" -> version = id
-                    "TEA01" -> {
-                        if (version == null) throw IsoFormatException("udf version missing")
-                        return version
-                    }
-                    else -> {
-                        if (version == null) throw IsoFormatException("volume recognition missing")
-                        return version
-                    }
+                    VSD_BEGIN -> Unit
+                    VSD_END -> break
+                    UDF_NSR02, UDF_NSR03 -> version = id
+                    ISO_DESCRIPTOR -> Unit
+                    else -> break
                 }
             }
-            if (version == null) throw IsoFormatException("volume recognition missing")
-            return version
+            return version ?: throw IsoFormatException("volume recognition missing")
+        }
+
+        private fun isBlankSector(data: ByteArray, offset: Int): Boolean {
+            if (offset + SECTOR_SIZE > data.size) return true
+            for (index in offset until offset + SECTOR_SIZE) {
+                if (data[index].toInt() != 0) return false
+            }
+            return true
         }
 
         private fun readAnchor(): Anchor {
@@ -373,8 +409,18 @@ private fun readEntry(
 }
 
 private const val MAX_DESCRIPTOR_CHUNK = 64 * 1024
+private const val MAX_PREFETCH_BYTES = 1024L * 1024L
 private const val MAX_PARTITION_MAPS = 64
 private const val METADATA_MAP_MIN_LENGTH = 58
+private const val VRS_FIRST_SECTOR = 16L
+private const val VRS_SECTORS = 16
+private const val VRS_TAG_OFFSET = 1
+private const val VRS_TAG_LENGTH = 5
+private const val VSD_BEGIN = "BEA01"
+private const val VSD_END = "TEA01"
+private const val UDF_NSR02 = "NSR02"
+private const val UDF_NSR03 = "NSR03"
+private const val ISO_DESCRIPTOR = "CD001"
 
 private class VolumeDescriptors(
     val logical: LogicalVolume?,

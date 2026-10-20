@@ -83,7 +83,11 @@ internal class EngineTrackSelection(private val host: Host) {
                     val fmt = group.getFormat(trackIndex)
                     if (type == C.TRACK_TYPE_TEXT && isUndeclaredClosedCaptionTrack(fmt)) continue
                     val language = getLanguage(fmt)
-                    val detail = if (type == C.TRACK_TYPE_VIDEO) getVideoName(fmt) else getName(fmt)
+                    val detail = when (type) {
+                        C.TRACK_TYPE_VIDEO -> getVideoName(fmt)
+                        C.TRACK_TYPE_TEXT -> getSubtitleName(fmt)
+                        else -> getName(fmt)
+                    }
                     val bean = TrackInfoBean()
                     bean.language = language
                     bean.name = buildDisplayName(
@@ -417,6 +421,16 @@ internal class EngineTrackSelection(private val host: Host) {
         appendPart(builder, fmt.label)
         appendPart(builder, codec)
         appendPart(builder, channelLabel)
+        return builder.toString()
+    }
+
+    private fun getSubtitleName(fmt: Format): String {
+        val builder = StringBuilder()
+        val fromMime = subtitleFormatName(fmt.sampleMimeType)
+        appendPart(builder, fromMime)
+        val fromCodecs = subtitleFormatName(fmt.codecs)
+        if (fromCodecs.isNotEmpty() && fromCodecs != fromMime) appendPart(builder, fromCodecs)
+        appendPart(builder, fmt.label)
         return builder.toString()
     }
 

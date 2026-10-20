@@ -30,7 +30,7 @@ class IsoResolverTest {
         val resolver = IsoResolver()
         val first = resolver.resolve(probe, reader(image, AtomicInteger()))
         val second = resolver.resolve(probe, RangeBlockReader { _, _ -> error("cache miss") })
-        assertEquals(first.target, second.target)
+        assertEquals(first.selection, second.selection)
     }
 
     @Test

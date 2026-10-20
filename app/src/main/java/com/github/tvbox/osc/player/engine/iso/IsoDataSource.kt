@@ -11,17 +11,28 @@ import com.github.tvbox.osc.util.LOG
 import java.io.IOException
 import java.util.HashMap
 import java.util.concurrent.TimeUnit
+import java.util.concurrent.atomic.AtomicReference
 import okhttp3.OkHttpClient
 
 class IsoDataSource internal constructor(
     private val upstreamFactory: DataSource.Factory,
-    private val resolver: IsoResolver,
+    private val logger: (String) -> Unit,
+    private val targetProvider: (Uri) -> IsoPlayTarget,
 ) : BaseDataSource(false) {
 
-    constructor(upstreamFactory: DataSource.Factory) : this(upstreamFactory, IsoResolver { LOG.i(it) })
+    constructor(upstreamFactory: DataSource.Factory) : this(
+        upstreamFactory,
+        { LOG.i(it) },
+        IsoTargetProvider(upstreamFactory, IsoResolver { LOG.i(it) }, 0L, {}).provider(),
+    )
 
     private val closeGuard = IsoCloseGuard()
     private var upstream: DataSource? = null
+    private var windows: List<IsoReadWindow> = emptyList()
+    private var windowIndex = 0
+    private var windowRemaining = 0L
+    private var windowDelivered = 0L
+    private var requestSpec: DataSpec? = null
     private var bytesRemaining = 0L
     private var dataUri: Uri? = null
     private var targetValue: IsoPlayTarget? = null
@@ -31,26 +42,35 @@ class IsoDataSource internal constructor(
     override fun open(dataSpec: DataSpec): Long {
         transferInitializing(dataSpec)
         dataUri = dataSpec.uri
-        val probe = resolver.probe(dataSpec.uri, upstreamFactory)
-        val info = resolver.resolve(
-            probe,
-            DataSourceRangeReader(upstreamFactory, dataSpec.uri, resolver.logger),
-        )
-        targetValue = info.target
-        IsoThroughput.setTarget(info.target.m2tsLength)
-        val window = try {
-            isoReadWindow(info.target, dataSpec.position, dataSpec.length)
+        requestSpec = dataSpec
+        val target = targetProvider(dataSpec.uri)
+        targetValue = target
+        val planned = try {
+            isoReadWindows(target, dataSpec.position, dataSpec.length)
         } catch (e: IsoFormatException) {
-            resolver.logger("echo-iso-error:${e.message}")
+            logger("echo-iso-error:${e.message}")
             throw e
         }
-        if (window.length == 0L) {
+        var total = 0L
+        for (window in planned) total += window.length
+        if (total == 0L) {
             closeGuard.activate()
             transferStarted(dataSpec)
             return 0
         }
+        windows = planned
+        windowIndex = 0
+        bytesRemaining = total
+        closeGuard.activate()
+        openWindow(planned.first())
+        transferStarted(dataSpec)
+        return bytesRemaining
+    }
+
+    private fun openWindow(window: IsoReadWindow) {
+        val spec = requireNotNull(requestSpec) { "missing data spec" }
         val source = upstreamFactory.createDataSource()
-        val upstreamSpec = dataSpec.buildUpon()
+        val upstreamSpec = spec.buildUpon()
             .setPosition(window.isoOffset)
             .setLength(window.length)
             .build()
@@ -58,45 +78,63 @@ class IsoDataSource internal constructor(
             source.open(upstreamSpec)
         } catch (e: IOException) {
             runCatching { source.close() }
-            logAuthFailure(e, resolver.logger)
+            logAuthFailure(e, logger)
             throw e
         }
         upstream = source
-        bytesRemaining = if (openedLength == C.LENGTH_UNSET.toLong()) {
+        windowRemaining = if (openedLength == C.LENGTH_UNSET.toLong()) {
             window.length
         } else {
             minOf(openedLength, window.length)
         }
-        closeGuard.activate()
-        transferStarted(dataSpec)
-        return bytesRemaining
+        windowDelivered = 0L
     }
 
     override fun read(buffer: ByteArray, offset: Int, length: Int): Int {
         if (bytesRemaining == 0L) return C.RESULT_END_OF_INPUT
+        if (length == 0) return 0
+        if (windowRemaining == 0L && !advanceWindow()) return C.RESULT_END_OF_INPUT
         val source = requireNotNull(upstream) { "not open" }
-        val max = if (bytesRemaining == C.LENGTH_UNSET.toLong()) {
-            length
-        } else {
-            minOf(length.toLong(), bytesRemaining).toInt()
-        }
+        val max = minOf(length.toLong(), bytesRemaining, windowRemaining).toInt()
         return try {
             val read = source.read(buffer, offset, max)
             if (read > 0) {
-                if (bytesRemaining != C.LENGTH_UNSET.toLong()) bytesRemaining -= read
+                windowRemaining -= read
+                windowDelivered += read
+                bytesRemaining -= read
                 bytesTransferred(read)
+            } else if (windowRemaining > 0L) {
+                bytesRemaining = 0
             }
             read
         } catch (e: IOException) {
-            logAuthFailure(e, resolver.logger)
+            logAuthFailure(e, logger)
             throw e
         }
+    }
+
+    private fun advanceWindow(): Boolean {
+        val current = windows.getOrNull(windowIndex)
+        if (current != null && windowDelivered < current.length) {
+            bytesRemaining = 0
+            return false
+        }
+        val next = windows.getOrNull(windowIndex + 1) ?: return false
+        upstream?.let { runCatching { it.close() } }
+        upstream = null
+        windowIndex += 1
+        openWindow(next)
+        return true
     }
 
     override fun close() {
         closeGuard.close {
             val source = upstream
             upstream = null
+            windows = emptyList()
+            windowIndex = 0
+            windowRemaining = 0L
+            windowDelivered = 0L
             bytesRemaining = 0
             try {
                 source?.close()
@@ -114,18 +152,29 @@ class IsoDataSource internal constructor(
     class Factory(
         private val upstreamFactory: DataSource.Factory,
         private val logger: (String) -> Unit = { LOG.i(it) },
+        private val target: IsoPlayTarget? = null,
+        private val onSelection: ((IsoSelection) -> Unit)? = null,
+        private val seekMs: Long = 0L,
     ) : DataSource.Factory {
 
         internal val resolver = IsoResolver(logger)
+        private val selectionNotified = java.util.concurrent.atomic.AtomicBoolean(false)
+        private val provider = IsoTargetProvider(
+            upstreamFactory,
+            resolver,
+            seekMs,
+            { selection -> notifySelection(selection) },
+            target,
+        )
 
-        override fun createDataSource(): DataSource = IsoDataSource(upstreamFactory, resolver)
+        override fun createDataSource(): DataSource =
+            IsoDataSource(upstreamFactory, logger, provider.provider())
 
-        fun resolve(uri: Uri): IsoPlayTarget {
-            val probe = resolver.probe(uri, upstreamFactory)
-            return resolver.resolve(
-                probe,
-                DataSourceRangeReader(upstreamFactory, uri, logger),
-            ).target
+        fun resolve(uri: Uri): IsoPlayTarget = provider.resolve(uri)
+
+        private fun notifySelection(selection: IsoSelection) {
+            val callback = onSelection ?: return
+            if (selectionNotified.compareAndSet(false, true)) callback(selection)
         }
     }
 
@@ -139,7 +188,28 @@ class IsoDataSource internal constructor(
 
         fun factory(headers: Map<String, String>?): Factory = factory(headers, defaultClient)
 
-        fun factory(headers: Map<String, String>?, client: OkHttpClient): Factory {
+        fun factory(headers: Map<String, String>?, onSelection: ((IsoSelection) -> Unit)?): Factory =
+            factory(headers, defaultClient, null, onSelection, 0L)
+
+        fun factory(headers: Map<String, String>?, seekMs: Long): Factory =
+            factory(headers, defaultClient, null, null, seekMs)
+
+        fun factory(
+            headers: Map<String, String>?,
+            seekMs: Long,
+            onSelection: ((IsoSelection) -> Unit)?,
+        ): Factory = factory(headers, defaultClient, null, onSelection, seekMs)
+
+        fun factory(headers: Map<String, String>?, target: IsoPlayTarget): Factory =
+            factory(headers, defaultClient, target, null, 0L)
+
+        fun factory(
+            headers: Map<String, String>?,
+            client: OkHttpClient,
+            target: IsoPlayTarget? = null,
+            onSelection: ((IsoSelection) -> Unit)? = null,
+            seekMs: Long = 0L,
+        ): Factory {
             val requestHeaders = MediaSources.toRequestHeaders(headers)
             var userAgent: String? = null
             val defaultHeaders = HashMap<String, String>()
@@ -153,24 +223,83 @@ class IsoDataSource internal constructor(
             val httpFactory = OkHttpDataSource.Factory(client)
             httpFactory.setUserAgent(userAgent)
             httpFactory.setDefaultRequestProperties(defaultHeaders)
-            return Factory(httpFactory)
+            return Factory(httpFactory, { LOG.i(it) }, target, onSelection, seekMs)
         }
+    }
+}
+
+internal class IsoTargetProvider(
+    private val upstreamFactory: DataSource.Factory,
+    private val resolver: IsoResolver,
+    private val seekMs: Long,
+    private val onSelection: (IsoSelection) -> Unit,
+    explicit: IsoPlayTarget? = null,
+) {
+
+    private val resolved = AtomicReference<IsoPlayTarget?>(explicit)
+
+    fun provider(): (Uri) -> IsoPlayTarget = { uri -> resolve(uri) }
+
+    fun resolve(uri: Uri): IsoPlayTarget {
+        resolved.get()?.let { return it }
+        val probe = resolver.probe(uri, upstreamFactory)
+        val info = resolver.resolve(
+            probe,
+            DataSourceRangeReader(upstreamFactory, uri, resolver.logger),
+            seekMs,
+        )
+        IsoPlaylistState.update(info.selection)
+        IsoThroughput.setTarget(info.selection.totalLength)
+        onSelection(info.selection)
+        val target = info.selection.primary
+        resolved.compareAndSet(null, target)
+        return resolved.get() ?: target
     }
 }
 
 internal data class IsoReadWindow(val isoOffset: Long, val length: Long)
 
-internal fun isoReadWindow(target: IsoPlayTarget, position: Long, requestedLength: Long): IsoReadWindow {
-    if (position < 0 || position > target.m2tsLength) {
-        throw IsoFormatException("position out of range: $position/${target.m2tsLength}")
+internal fun isoReadWindows(
+    target: IsoPlayTarget,
+    position: Long,
+    requestedLength: Long,
+): List<IsoReadWindow> {
+    val available = target.availableLength - position
+    if (position < 0 || available < 0) {
+        throw IsoFormatException("position out of range: $position/${target.availableLength}")
     }
-    val available = target.m2tsLength - position
     val length = if (requestedLength == C.LENGTH_UNSET.toLong()) {
         available
     } else {
         minOf(requestedLength, available)
     }
-    return IsoReadWindow(target.m2tsOffset + position, length)
+    if (length <= 0L) return emptyList()
+    val windows = ArrayList<IsoReadWindow>(target.runs.size)
+    var cursor = target.startOffset + position
+    var remaining = length
+    var runStart = 0L
+    for (run in target.runs) {
+        val runEnd = runStart + run.length
+        if (remaining > 0L && cursor >= runStart && cursor < runEnd) {
+            val inside = cursor - runStart
+            val take = minOf(remaining, run.length - inside)
+            windows.add(IsoReadWindow(run.offset + inside, take))
+            cursor += take
+            remaining -= take
+        }
+        runStart = runEnd
+        if (remaining <= 0L) break
+    }
+    if (remaining > 0L) throw IsoFormatException("target runs short: $remaining")
+    return windows
+}
+
+internal fun isoReadWindow(target: IsoPlayTarget, position: Long, requestedLength: Long): IsoReadWindow {
+    val windows = isoReadWindows(target, position, requestedLength)
+    if (windows.isEmpty()) {
+        return IsoReadWindow(target.m2tsOffset + target.startOffset + position, 0)
+    }
+    return windows.first()
 }
 
 internal class IsoCloseGuard {

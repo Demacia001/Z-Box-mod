@@ -69,6 +69,8 @@ class IsoEntry internal constructor(
     internal val data: EntryData,
 )
 
+internal class IsoListing(val entries: List<IsoEntry>, val skipped: Int)
+
 internal sealed class Partition {
     class Physical(val startBlock: Long) : Partition()
 

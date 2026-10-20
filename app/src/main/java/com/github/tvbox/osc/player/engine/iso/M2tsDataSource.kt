@@ -30,7 +30,7 @@ class M2tsDataSource internal constructor(
         dataUri = dataSpec.uri
         val target = targetProvider(dataSpec.uri)
         targetValue = target
-        val logicalLength = m2tsLogicalLength(target.m2tsLength)
+        val logicalLength = m2tsLogicalLength(target.availableLength)
         val length = m2tsReadLength(dataSpec.position, dataSpec.length, logicalLength)
         if (dataSpec.position > 0) LOG.i("echo-iso-seek:${dataSpec.position}:${length}")
         closeGuard.activate()

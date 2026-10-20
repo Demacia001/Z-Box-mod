@@ -1,6 +1,5 @@
 package com.github.tvbox.osc.player.engine.iso
 
-import androidx.media3.extractor.ts.TsExtractor
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNotSame
 import org.junit.Assert.assertTrue
@@ -9,10 +8,10 @@ import org.junit.Test
 class IsoExtractorsFactoryTest {
 
     @Test
-    fun createsSingleTsExtractor() {
+    fun createsSingleWrappedExtractor() {
         val extractors = IsoExtractorsFactory().createExtractors()
         assertEquals(1, extractors.size)
-        assertTrue(extractors[0] is TsExtractor)
+        assertTrue(extractors[0] is PrimaryVideoExtractor)
     }
 
     @Test

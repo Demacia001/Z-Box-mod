@@ -19,23 +19,29 @@ class IsoExtractorsFactory(
         responseHeaders: Map<String, List<String>>,
     ): Array<Extractor> = arrayOf(newExtractor())
 
-    private fun newExtractor(): Extractor = TsExtractor(
-        TsExtractor.MODE_MULTI_PMT,
-        0,
-        DefaultSubtitleParserFactory(),
-        TimestampAdjuster(TIMESTAMP_SHARED),
-        readerFactory,
-        TsExtractor.DEFAULT_TIMESTAMP_SEARCH_BYTES,
+    private fun newExtractor(): Extractor = PrimaryVideoExtractor(
+        TsExtractor(
+            TsExtractor.MODE_MULTI_PMT,
+            0,
+            DefaultSubtitleParserFactory(),
+            TimestampAdjuster(TIMESTAMP_SHARED),
+            readerFactory,
+            TIMESTAMP_SEARCH_BYTES,
+        ),
+        { IsoPlaylistState.videoPid() },
     )
 
     private companion object {
         const val TIMESTAMP_SHARED = 0L
+
+        val TIMESTAMP_SEARCH_BYTES = TsExtractor.DEFAULT_TIMESTAMP_SEARCH_BYTES * 10
 
         val DEFAULT_READER_FACTORY: TsPayloadReader.Factory =
             BdTsPayloadReaderFactory(
                 lpcmEnabled = { IsoSettings.lpcmEnabled() },
                 trueHdCoreEnabled = { IsoSettings.trueHdCoreEnabled() },
                 pgsEnabled = { IsoSettings.pgsEnabled() },
+                languageForPid = { pid -> IsoPlaylistState.languageForPid(pid) },
             )
     }
 }

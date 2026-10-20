@@ -6,8 +6,12 @@ internal class UdfImageBuilder(
     private val useMetadataPartition: Boolean,
     private val fragmented: Boolean = false,
     private val withBdmv: Boolean = true,
+    private val crossBlockFids: Boolean = false,
+    private val hybridRecognition: Boolean = false,
 ) {
     private val bytes = ByteArray(BLOCK_COUNT * SECTOR_SIZE)
+
+    private val metadataLayout: Boolean get() = useMetadataPartition && !crossBlockFids
 
     fun image(): ByteArray {
         build()
@@ -28,7 +32,7 @@ internal class UdfImageBuilder(
         writeRecognition()
         writeAnchor()
         writeVolumeDescriptors()
-        if (useMetadataPartition) {
+        if (useMetadataPartition && !crossBlockFids) {
             writeMetadataLayout()
         } else {
             writePhysicalLayout()
@@ -37,9 +41,21 @@ internal class UdfImageBuilder(
     }
 
     private fun writeRecognition() {
-        writeAscii(16, 1, "BEA01")
-        writeAscii(17, 1, "NSR03")
-        writeAscii(18, 1, "TEA01")
+        if (hybridRecognition) {
+            putByte(16, 0, 1)
+            writeAscii(16, 1, "CD001")
+            putByte(16, 6, 1)
+            putByte(17, 0, 0xFF)
+            writeAscii(17, 1, "CD001")
+            putByte(17, 6, 1)
+            writeAscii(18, 1, "BEA01")
+            writeAscii(19, 1, "NSR02")
+            writeAscii(20, 1, "TEA01")
+        } else {
+            writeAscii(16, 1, "BEA01")
+            writeAscii(17, 1, "NSR03")
+            writeAscii(18, 1, "TEA01")
+        }
     }
 
     private fun writeAnchor() {
@@ -58,13 +74,13 @@ internal class UdfImageBuilder(
         putLe32(34, 212, SECTOR_SIZE.toLong())
         putLe32(34, 248, SECTOR_SIZE.toLong())
         putLe32(34, 252, 0)
-        putLe16(34, 256, if (useMetadataPartition) 1 else 0)
-        putLe32(34, 268, if (useMetadataPartition) 2L else 1L)
+        putLe16(34, 256, if (metadataLayout) 1 else 0)
+        putLe32(34, 268, if (metadataLayout) 2L else 1L)
         putByte(34, PARTITION_MAP_START, PARTITION_MAP_PHYSICAL)
         putByte(34, PARTITION_MAP_START + 1, 6)
         putLe16(34, PARTITION_MAP_START + 2, 1)
         putLe16(34, PARTITION_MAP_START + 4, 0)
-        if (useMetadataPartition) {
+        if (metadataLayout) {
             writeMetadataMap(34, PARTITION_MAP_START + 6)
         }
         putTag(35, 0, TAG_TERMINATING)
@@ -94,17 +110,33 @@ internal class UdfImageBuilder(
             block = 304,
             children = if (withBdmv) listOf(Fid("STREAM", 5, 0, true)) else emptyList(),
         )
-        writeFileEntry(305, FILE_TYPE_DIRECTORY, SECTOR_SIZE.toLong(), ICB_AD_SHORT, shortAd(6, SECTOR_SIZE.toLong()))
-        writeEntryFids(
-            block = 306,
-            children = listOf(
+        val streamChildren = if (crossBlockFids) {
+            crossingFids()
+        } else {
+            listOf(
                 Fid("00000.m2ts", 7, 0, false),
                 Fid("00001.m2ts", 8, 0, false),
-            ),
+            )
+        }
+        val streamLength = if (crossBlockFids) {
+            streamChildren.sumOf { fidLength(it) }.toLong()
+        } else {
+            SECTOR_SIZE.toLong()
+        }
+        val streamDataBlock = if (crossBlockFids) CROSSING_FID_BLOCK - PARTITION_START.toInt() else 6
+        writeFileEntry(305, FILE_TYPE_DIRECTORY, streamLength, ICB_AD_SHORT, shortAd(streamDataBlock, streamLength))
+        writeEntryFids(
+            block = if (crossBlockFids) CROSSING_FID_BLOCK else 306,
+            children = streamChildren,
         )
         writeFileEntry(307, FILE_TYPE_REGULAR, FIRST_FILE_SIZE, ICB_AD_SHORT, shortAd(30, FIRST_FILE_SIZE))
         writeFileEntry(308, FILE_TYPE_REGULAR, SECOND_FILE_SIZE, ICB_AD_LONG, secondFileAd())
     }
+
+    private fun crossingFids(): List<Fid> =
+        (0 until CROSSING_FID_CHILDREN).map { index ->
+            Fid("000%02d.m2ts".format(index), if (index % 2 == 0) 7 else 8, 0, false)
+        }
 
     private fun writeMetadataLayout() {
         writeExtendedFileEntry(
@@ -308,5 +340,8 @@ internal class UdfImageBuilder(
         const val HALF_FILE_SIZE = 4096L
         const val FIRST_DATA_BLOCK = 330
         const val SECOND_DATA_BLOCK = 332
+        const val CROSSING_FID_BLOCK = 340
     }
 }
+
+internal const val CROSSING_FID_CHILDREN = 50
