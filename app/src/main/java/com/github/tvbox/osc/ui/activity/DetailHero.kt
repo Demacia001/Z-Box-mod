@@ -2,11 +2,13 @@ package com.github.tvbox.osc.ui.activity
 
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
+import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.WindowInsets
@@ -24,6 +26,7 @@ import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.layout.windowInsetsPadding
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material3.Button
 import androidx.compose.material3.ContainedLoadingIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.ExperimentalMaterial3ExpressiveApi
@@ -78,14 +81,17 @@ import coil3.compose.AsyncImage
 import coil3.compose.LocalPlatformContext
 import coil3.request.ImageRequest
 import com.github.tvbox.osc.R
+import com.github.tvbox.osc.player.ui.PLAYER_PRESS_SCALE
 import com.github.tvbox.osc.player.ui.playerPressEffect
 import com.github.tvbox.osc.ui.components.HeroImageSizes
 import com.github.tvbox.osc.ui.components.ImagePalette
 import com.github.tvbox.osc.ui.components.LocalTopBarGlassBackdrop
 import com.github.tvbox.osc.ui.components.PosterSize
+import com.github.tvbox.osc.ui.components.PressMorphButtonShapes
 import com.github.tvbox.osc.ui.components.TopBarActionBox
 import com.github.tvbox.osc.ui.components.VodPoster
 import com.github.tvbox.osc.ui.components.isRatingNote
+import com.github.tvbox.osc.ui.components.pressScale
 import com.github.tvbox.osc.ui.components.rememberHeroImageSizes
 import com.github.tvbox.osc.ui.components.tmdbPosterPath
 import com.github.tvbox.osc.ui.components.tmdbUrlOf
@@ -426,6 +432,7 @@ private fun DetailHeroTopActions(
     }
 }
 
+@OptIn(ExperimentalMaterial3ExpressiveApi::class)
 @Composable
 private fun DetailHeroInfoBlock(
     ratingText: String?,
@@ -461,32 +468,31 @@ private fun DetailHeroInfoBlock(
                 flat = flat,
             )
         }
-        Box(
+        val playInteraction = remember { MutableInteractionSource() }
+        Button(
+            onClick = onPlay,
             modifier = Modifier
                 .padding(top = HeroActionSpacing)
                 .widthIn(min = HeroPlayCapsuleMinWidth)
                 .height(HeroPlayCapsuleHeight)
-                .playerPressEffect(onTap = onPlay)
-                .clip(RoundedCornerShape(50))
-                .background(MaterialTheme.colorScheme.primary)
-                .padding(horizontal = HeroPlayCapsuleHorizontalPadding),
-            contentAlignment = Alignment.Center,
+                .pressScale(playInteraction, PLAYER_PRESS_SCALE),
+            shapes = PressMorphButtonShapes,
+            contentPadding = PaddingValues(horizontal = HeroPlayCapsuleHorizontalPadding),
+            interactionSource = playInteraction,
         ) {
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                Image(
-                    painter = painterResource(R.drawable.player_ic_play),
-                    contentDescription = null,
-                    colorFilter = ColorFilter.tint(MaterialTheme.colorScheme.onPrimary),
-                    modifier = Modifier.size(22.dp),
-                )
-                Text(
-                    text = stringResource(R.string.common_play),
-                    style = MaterialTheme.typography.titleMedium,
-                    fontWeight = FontWeight.Medium,
-                    color = MaterialTheme.colorScheme.onPrimary,
-                    modifier = Modifier.padding(start = 6.dp),
-                )
-            }
+            Image(
+                painter = painterResource(R.drawable.player_ic_play),
+                contentDescription = null,
+                colorFilter = ColorFilter.tint(MaterialTheme.colorScheme.onPrimary),
+                modifier = Modifier.size(22.dp),
+            )
+            Text(
+                text = stringResource(R.string.common_play),
+                style = MaterialTheme.typography.titleMedium,
+                fontWeight = FontWeight.Medium,
+                color = MaterialTheme.colorScheme.onPrimary,
+                modifier = Modifier.padding(start = 6.dp),
+            )
         }
         DetailActionRow(
             followed = followed,

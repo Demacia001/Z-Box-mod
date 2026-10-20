@@ -513,8 +513,10 @@ private fun FollowVodCard(
             title = stringResource(R.string.live_follow_vod_source),
             leadingIconRes = R.drawable.ic_subscribe_source,
             subtitle = subtitle,
+            subtitleMaxLines = 1,
             checked = checked,
             onCheckedChange = { next -> if (next) onFollow() },
+            modifier = Modifier.padding(vertical = 6.dp),
         )
     }
 }

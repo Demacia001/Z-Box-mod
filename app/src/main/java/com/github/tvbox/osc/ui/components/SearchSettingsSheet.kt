@@ -52,6 +52,8 @@ private val SourceCardShapeRight = RoundedCornerShape(
     bottomEnd = 28.dp,
 )
 
+private val ExactCardShape = RoundedCornerShape(28.dp)
+
 @Composable
 fun SearchSettingsSheet(onDismiss: () -> Unit, onSelectionChanged: () -> Unit) {
     val sources = remember { ApiConfig.get().getSourceBeanList().filter(SourceBean::isSearchable) }
@@ -114,6 +116,7 @@ fun SearchSettingsSheet(onDismiss: () -> Unit, onSelectionChanged: () -> Unit) {
                 SettingsCard(
                     position = SettingsCardPosition.SINGLE,
                     color = MaterialTheme.colorScheme.surfaceBright,
+                    shape = ExactCardShape,
                 ) {
                     SettingsSwitchRow(
                         title = stringResource(R.string.search_exact),

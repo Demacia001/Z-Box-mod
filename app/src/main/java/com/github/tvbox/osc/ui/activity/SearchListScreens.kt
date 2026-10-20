@@ -29,6 +29,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalFocusManager
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
@@ -36,6 +37,7 @@ import com.github.tvbox.osc.R
 import com.github.tvbox.osc.bean.Movie
 import com.github.tvbox.osc.ui.components.VodCard
 import com.github.tvbox.osc.ui.components.VodCardStyle
+import com.github.tvbox.osc.ui.components.clearFocusOnDrag
 import com.github.tvbox.osc.ui.theme.filterChipColors
 
 @Composable
@@ -50,10 +52,13 @@ internal fun SearchListResults(
     onCardLongClick: (Movie.Video) -> Unit,
 ) {
     val context = LocalContext.current
+    val focusManager = LocalFocusManager.current
     val shown = if (selectedSource == null) done else done.filter { it.sourceKey == selectedSource }
     LazyColumn(
         state = listState,
-        modifier = Modifier.fillMaxSize(),
+        modifier = Modifier
+            .fillMaxSize()
+            .clearFocusOnDrag(focusManager),
         contentPadding = PaddingValues(top = topPad - 4.dp, bottom = 12.dp),
     ) {
         if (running || done.size > 1) {

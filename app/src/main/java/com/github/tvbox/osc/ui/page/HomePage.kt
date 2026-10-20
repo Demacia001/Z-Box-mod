@@ -12,6 +12,7 @@ import androidx.compose.animation.animateColorAsState
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -36,7 +37,6 @@ import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.lazy.rememberLazyListState
-import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.KeyboardArrowRight
@@ -65,8 +65,10 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.RectangleShape
 import androidx.compose.ui.graphics.drawscope.rotate
 import androidx.compose.ui.graphics.nativeCanvas
+import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalFocusManager
 import androidx.compose.ui.platform.LocalLayoutDirection
 import androidx.compose.ui.platform.LocalSoftwareKeyboardController
 import androidx.compose.ui.res.painterResource
@@ -106,6 +108,7 @@ import com.github.tvbox.osc.ui.components.SkeletonBox
 import com.github.tvbox.osc.ui.components.VodCard
 import com.github.tvbox.osc.ui.components.VodCardMenu
 import com.github.tvbox.osc.ui.components.VodCardStyle
+import com.github.tvbox.osc.ui.components.clearFocusOnDrag
 import com.github.tvbox.osc.ui.components.glassTopBarSurface
 import com.github.tvbox.osc.ui.components.heroSpotlightHeight
 import com.github.tvbox.osc.ui.components.rememberVodCardMenuState
@@ -240,34 +243,38 @@ fun HomePage(
             }
         },
         actions = {
-            Box(
+            Row(
                 modifier = Modifier
-                    .size(40.dp)
-                    .glassTopBarSurface(CircleShape, MaterialTheme.colorScheme.surfaceBright)
-                    .clickable { showSearchSettings = true },
-                contentAlignment = Alignment.Center,
+                    .height(40.dp)
+                    .glassTopBarSurface(ContinuousCapsule, MaterialTheme.colorScheme.surfaceBright),
+                verticalAlignment = Alignment.CenterVertically,
             ) {
-                Icon(
-                    painter = painterResource(R.drawable.ic_more_vert),
-                    contentDescription = stringResource(R.string.search_settings),
-                    tint = MaterialTheme.colorScheme.onSurface,
-                )
-            }
-            Spacer(Modifier.width(HomeTopBarControlSpacing))
-            Box(
-                modifier = Modifier
-                    .size(40.dp)
-                    .glassTopBarSurface(CircleShape, MaterialTheme.colorScheme.surfaceBright)
-                    .clickable {
-                        context.startActivity(Intent(context, SearchActivity::class.java))
-                    },
-                contentAlignment = Alignment.Center,
-            ) {
-                Icon(
-                    imageVector = Icons.Filled.Search,
-                    contentDescription = stringResource(R.string.common_search),
-                    tint = MaterialTheme.colorScheme.onSurface,
-                )
+                Box(
+                    modifier = Modifier
+                        .size(40.dp)
+                        .clickable { showSearchSettings = true },
+                    contentAlignment = Alignment.Center,
+                ) {
+                    Icon(
+                        painter = painterResource(R.drawable.ic_more_vert),
+                        contentDescription = stringResource(R.string.search_settings),
+                        tint = MaterialTheme.colorScheme.onSurface,
+                    )
+                }
+                Box(
+                    modifier = Modifier
+                        .size(40.dp)
+                        .clickable {
+                            context.startActivity(Intent(context, SearchActivity::class.java))
+                        },
+                    contentAlignment = Alignment.Center,
+                ) {
+                    Icon(
+                        imageVector = Icons.Filled.Search,
+                        contentDescription = stringResource(R.string.common_search),
+                        tint = MaterialTheme.colorScheme.onSurface,
+                    )
+                }
             }
         },
     ) { topPad, _ ->
@@ -457,6 +464,7 @@ fun HomePage(
         ) {
             val dismissAnimated = LocalSheetDismiss.current
             val keyboard = LocalSoftwareKeyboardController.current
+            val focusManager = LocalFocusManager.current
             val subscribes by vm.subscribeItems.collectAsStateWithLifecycle()
             val activeSubscribeIndex by vm.activeSubscribeIndex.collectAsStateWithLifecycle()
             var query by remember { mutableStateOf("") }
@@ -500,7 +508,11 @@ fun HomePage(
                 state = listState,
                 modifier = Modifier
                     .fillMaxWidth()
-                    .heightIn(max = 420.dp),
+                    .heightIn(max = 420.dp)
+                    .clearFocusOnDrag(focusManager)
+                    .pointerInput(focusManager) {
+                        detectTapGestures(onTap = { focusManager.clearFocus() })
+                    },
                 contentPadding = PaddingValues(start = 16.dp, end = 16.dp, bottom = 16.dp),
             ) {
                 if (filtered.isEmpty()) {

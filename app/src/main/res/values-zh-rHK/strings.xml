@@ -60,6 +60,10 @@
     <string name="search_history_empty">暫無搜尋記錄</string>
     <string name="search_incognito">無痕模式：不顯示搜尋記錄</string>
     <string name="search_hot_empty">暫無熱搜數據</string>
+    <string name="search_site_filter_hint">過濾</string>
+    <string name="search_result_layout">搜尋結果顯示方式</string>
+    <string name="search_result_layout_horizontal">卡片檢視</string>
+    <string name="search_result_layout_vertical">清單檢視</string>
     <string name="settings_history_limit">歷史記錄上限</string>
     <string name="settings_history_limit_subtitle">最多保留多少項記錄</string>
     <string name="settings_history_limit_value">%1$d 項</string>

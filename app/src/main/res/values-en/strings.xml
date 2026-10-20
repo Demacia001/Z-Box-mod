@@ -238,6 +238,7 @@
     <string name="search_field_hint">Search titles and actors</string>
     <string name="search_result_layout">Result layout</string>
     <string name="search_site_empty">No results from this site</string>
+    <string name="search_site_filter_hint">Filter</string>
     <string name="common_clear">Clear</string>
     <string name="common_loading_more">Loading…</string>
     <string name="common_no_more">No more results</string>
@@ -273,8 +274,8 @@
     <string name="search_home_poster">Home posters</string>
     <string name="search_layout_horizontal">Immersive</string>
     <string name="search_layout_vertical">Standard</string>
-    <string name="search_result_layout_horizontal">Horizontal</string>
-    <string name="search_result_layout_vertical">Vertical</string>
+    <string name="search_result_layout_horizontal">Card view</string>
+    <string name="search_result_layout_vertical">List view</string>
     <string name="search_exact">Exact search</string>
     <string name="search_sites">Search sites</string>
     <string name="search_sites_none_hint">No sites selected — searches will return nothing</string>

@@ -27,8 +27,12 @@ import androidx.compose.foundation.lazy.LazyListState
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.text.BasicTextField
+import androidx.compose.foundation.text.KeyboardActions
+import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Check
+import androidx.compose.material.icons.filled.Close
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.Icon
 import androidx.compose.material3.LinearWavyProgressIndicator
@@ -41,11 +45,17 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.focus.FocusRequester
+import androidx.compose.ui.focus.focusRequester
+import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.SolidColor
+import androidx.compose.ui.platform.LocalFocusManager
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
@@ -57,8 +67,11 @@ import androidx.compose.ui.unit.dp
 import com.github.tvbox.osc.R
 import com.github.tvbox.osc.bean.Movie
 import com.github.tvbox.osc.net.SearchSettings
+import com.github.tvbox.osc.ui.components.ClearFocusOnImeDismiss
 import com.github.tvbox.osc.ui.components.PressableCard
 import com.github.tvbox.osc.ui.components.VodPoster
+import com.github.tvbox.osc.ui.components.clearFocusOnDrag
+import com.github.tvbox.osc.ui.components.glassSurface
 import com.github.tvbox.osc.ui.theme.cardContainer
 
 @OptIn(ExperimentalFoundationApi::class)
@@ -192,6 +205,8 @@ internal fun LayoutSwitchCard(
 
 internal val SearchRailWidth = 140.dp
 
+private val SearchRailFilterHeight = 44.dp
+
 @Composable
 internal fun RailResults(
     hits: List<SearchViewModel.SourceResult>,
@@ -210,25 +225,46 @@ internal fun RailResults(
             .flatMap { result -> result.videos.map { result.sourceName to it } }
     }
 
+    var siteQuery by rememberSaveable { mutableStateOf("") }
+    val visibleSites = remember(hits, siteQuery) {
+        val keyword = siteQuery.trim()
+        if (keyword.isEmpty()) {
+            hits
+        } else {
+            hits.filter { it.sourceName.contains(keyword, ignoreCase = true) }
+        }
+    }
+
     LaunchedEffect(selectedSource) {
         if (rows.isNotEmpty()) listState.scrollToItem(0)
     }
 
+    val focusManager = LocalFocusManager.current
+
     Row(modifier = Modifier.fillMaxSize()) {
         LazyColumn(
             state = railState,
-            modifier = Modifier.width(SearchRailWidth),
+            modifier = Modifier
+                .width(SearchRailWidth)
+                .clearFocusOnDrag(focusManager),
             contentPadding = PaddingValues(start = 12.dp, end = 10.dp, top = topPad + 8.dp, bottom = 12.dp),
             verticalArrangement = Arrangement.spacedBy(4.dp),
         ) {
+            item(key = "rail_filter") {
+                RailSiteFilterField(
+                    query = siteQuery,
+                    onQueryChange = { siteQuery = it },
+                )
+            }
             item(key = "rail_all") {
                 SearchRailItem(
                     name = stringResource(R.string.common_all),
                     selected = selectedSource == null,
                     onClick = { onSelectSource(null) },
+                    iconRes = R.drawable.ic_apps,
                 )
             }
-            items(hits, key = { "rail_${it.sourceKey}" }) { result ->
+            items(visibleSites, key = { "rail_${it.sourceKey}" }) { result ->
                 SearchRailItem(
                     name = result.sourceName,
                     selected = selectedSource == result.sourceKey,
@@ -242,7 +278,9 @@ internal fun RailResults(
         )
         LazyColumn(
             state = listState,
-            modifier = Modifier.weight(1f),
+            modifier = Modifier
+                .weight(1f)
+                .clearFocusOnDrag(focusManager),
             contentPadding = PaddingValues(start = 10.dp, end = 12.dp, top = topPad + 8.dp, bottom = 12.dp),
             verticalArrangement = Arrangement.spacedBy(10.dp),
         ) {
@@ -281,30 +319,121 @@ internal fun RailResults(
 }
 
 @Composable
+private fun RailSiteFilterField(
+    query: String,
+    onQueryChange: (String) -> Unit,
+) {
+    val focusRequester = remember { FocusRequester() }
+    val focusManager = LocalFocusManager.current
+    var fieldFocused by remember { mutableStateOf(false) }
+    ClearFocusOnImeDismiss(focusManager, fieldFocused)
+    Box(
+        modifier = Modifier
+            .fillMaxWidth()
+            .height(SearchRailFilterHeight)
+            .glassSurface(RoundedCornerShape(16.dp), MaterialTheme.colorScheme.cardContainer, pressEffect = false)
+            .clip(RoundedCornerShape(16.dp))
+            .clickable { focusRequester.requestFocus() },
+        contentAlignment = Alignment.CenterStart,
+    ) {
+        Row(
+            modifier = Modifier.padding(horizontal = 10.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Icon(
+                painter = painterResource(R.drawable.ic_filter_alt),
+                contentDescription = null,
+                tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                modifier = Modifier.size(18.dp),
+            )
+            Spacer(modifier = Modifier.width(6.dp))
+            BasicTextField(
+                value = query,
+                onValueChange = onQueryChange,
+                modifier = Modifier
+                    .weight(1f)
+                    .focusRequester(focusRequester)
+                    .onFocusChanged { fieldFocused = it.isFocused },
+                singleLine = true,
+                textStyle = MaterialTheme.typography.bodyMedium.copy(
+                    color = MaterialTheme.colorScheme.onSurface,
+                    fontWeight = FontWeight.Medium,
+                ),
+                cursorBrush = SolidColor(MaterialTheme.colorScheme.primary),
+                keyboardOptions = KeyboardOptions(imeAction = ImeAction.Search),
+                keyboardActions = KeyboardActions(onSearch = { focusManager.clearFocus() }),
+                decorationBox = { inner ->
+                    Box(contentAlignment = Alignment.CenterStart) {
+                        if (query.isEmpty()) {
+                            Text(
+                                text = stringResource(R.string.search_site_filter_hint),
+                                style = MaterialTheme.typography.bodyMedium,
+                                fontWeight = FontWeight.Medium,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis,
+                            )
+                        }
+                        inner()
+                    }
+                },
+            )
+            if (query.isNotEmpty()) {
+                Icon(
+                    imageVector = Icons.Filled.Close,
+                    contentDescription = stringResource(R.string.common_clear),
+                    tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                    modifier = Modifier
+                        .clip(RoundedCornerShape(50))
+                        .clickable { onQueryChange("") }
+                        .padding(2.dp)
+                        .size(16.dp),
+                )
+            }
+        }
+    }
+}
+
+@Composable
 internal fun SearchRailItem(
     name: String,
     selected: Boolean,
     onClick: () -> Unit,
+    iconRes: Int? = null,
 ) {
+    val contentColor = if (selected) {
+        MaterialTheme.colorScheme.onPrimaryContainer
+    } else {
+        MaterialTheme.colorScheme.onSurface
+    }
     Surface(
         onClick = onClick,
         shape = RoundedCornerShape(16.dp),
         color = if (selected) MaterialTheme.colorScheme.primaryContainer else MaterialTheme.colorScheme.surfaceBright,
         modifier = Modifier.fillMaxWidth(),
     ) {
-        Text(
-            text = name,
-            style = MaterialTheme.typography.bodyMedium,
-            fontWeight = FontWeight.Medium,
-            color = if (selected) {
-                MaterialTheme.colorScheme.onPrimaryContainer
-            } else {
-                MaterialTheme.colorScheme.onSurface
-            },
-            maxLines = 1,
-            overflow = TextOverflow.Ellipsis,
+        Row(
             modifier = Modifier.padding(start = 10.dp, end = 8.dp, top = 12.dp, bottom = 12.dp),
-        )
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            if (iconRes != null) {
+                Icon(
+                    painter = painterResource(iconRes),
+                    contentDescription = null,
+                    tint = contentColor,
+                    modifier = Modifier.size(16.dp),
+                )
+                Spacer(modifier = Modifier.width(6.dp))
+            }
+            Text(
+                text = name,
+                style = MaterialTheme.typography.bodyMedium,
+                fontWeight = FontWeight.Medium,
+                color = contentColor,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+            )
+        }
     }
 }
 

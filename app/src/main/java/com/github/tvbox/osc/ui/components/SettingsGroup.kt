@@ -4,6 +4,7 @@ import androidx.annotation.DrawableRes
 import androidx.compose.foundation.background
 import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -67,8 +68,6 @@ private val RowLeadingIconSize = 24.dp
 private val RowLeadingIconGap = 16.dp
 
 private val PasswordTransformation = PasswordVisualTransformation()
-
-private val TestButtonShape = RoundedCornerShape(50)
 
 private val TestButtonContentPadding = PaddingValues(horizontal = 12.dp, vertical = 10.dp)
 
@@ -283,6 +282,7 @@ fun SettingsSwitchRow(
     onCheckedChange: ((Boolean) -> Unit)?,
     modifier: Modifier = Modifier,
     subtitle: String? = null,
+    subtitleMaxLines: Int = Int.MAX_VALUE,
     valueText: String? = null,
     enabled: Boolean = true,
     leadingIconRes: Int? = null,
@@ -305,7 +305,7 @@ fun SettingsSwitchRow(
         Column(modifier = Modifier.weight(1f)) {
             RowTitle(title = title, enabled = enabled)
             if (subtitle != null) {
-                RowSubtitle(text = subtitle, enabled = enabled)
+                RowSubtitle(text = subtitle, enabled = enabled, maxLines = subtitleMaxLines)
             }
         }
         if (valueText != null) {
@@ -373,7 +373,12 @@ private fun RowTitle(title: String, enabled: Boolean, modifier: Modifier = Modif
 }
 
 @Composable
-private fun RowSubtitle(text: String, enabled: Boolean, modifier: Modifier = Modifier) {
+private fun RowSubtitle(
+    text: String,
+    enabled: Boolean,
+    modifier: Modifier = Modifier,
+    maxLines: Int = Int.MAX_VALUE,
+) {
     Text(
         text = text,
         style = MaterialTheme.typography.bodySmall,
@@ -382,6 +387,8 @@ private fun RowSubtitle(text: String, enabled: Boolean, modifier: Modifier = Mod
         } else {
             MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.38f)
         },
+        maxLines = maxLines,
+        overflow = TextOverflow.Ellipsis,
         modifier = modifier.padding(top = 4.dp),
     )
 }
@@ -512,6 +519,7 @@ private fun TextFieldIcon(
     )
 }
 
+@OptIn(androidx.compose.material3.ExperimentalMaterial3ExpressiveApi::class)
 @Composable
 fun SettingsTestButton(
     text: String,
@@ -520,16 +528,18 @@ fun SettingsTestButton(
     loading: Boolean = false,
     enabled: Boolean = true,
 ) {
+    val interactionSource = remember { MutableInteractionSource() }
     Button(
         onClick = onClick,
-        modifier = modifier,
+        modifier = modifier.pressScale(interactionSource),
         enabled = enabled && !loading,
-        shape = TestButtonShape,
+        shapes = PressMorphButtonShapes,
         contentPadding = TestButtonContentPadding,
         colors = ButtonDefaults.buttonColors(
             containerColor = MaterialTheme.colorScheme.primary,
             contentColor = MaterialTheme.colorScheme.onPrimary,
         ),
+        interactionSource = interactionSource,
     ) {
         if (loading) {
             CircularProgressIndicator(

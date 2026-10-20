@@ -11,6 +11,7 @@ import androidx.compose.animation.slideInHorizontally
 import androidx.compose.animation.slideOutHorizontally
 import androidx.compose.animation.togetherWith
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -30,7 +31,9 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalFocusManager
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.Dp
@@ -53,15 +56,27 @@ import com.github.tvbox.osc.util.HistoryHelper
 import com.github.tvbox.osc.util.KV
 import kotlinx.coroutines.delay
 
+private const val SuggestDebounceMs = 120L
+
 @Composable
-fun SearchScreen(vm: SearchViewModel = viewModel()) {
+private fun rememberSearchViewModel(): SearchViewModel {
+    val activity = LocalContext.current as? android.app.Activity
+    val initialTitle = activity?.intent?.getStringExtra("title").orEmpty()
+    return viewModel(initializer = { SearchViewModel(initialTitle) })
+}
+
+@Composable
+fun SearchScreen(vm: SearchViewModel = rememberSearchViewModel()) {
     val context = LocalContext.current
     val activity = context as? android.app.Activity
+    val focusManager = LocalFocusManager.current
     val results by vm.results.collectAsState()
     val running by vm.running.collectAsState()
     val hotSearch by vm.hotSearch.collectAsState()
     val suggest by vm.suggest.collectAsState()
-    var query by remember { mutableStateOf("") }
+    var query by remember {
+        mutableStateOf(activity?.intent?.getStringExtra("title").orEmpty())
+    }
     var selectedSource by remember { mutableStateOf<String?>(null) }
     var history by remember { mutableStateOf(KV.get(HawkConfig.SEARCH_HISTORY, ArrayList<String>())) }
     val searchedTitle by vm.searchedTitle.collectAsState()
@@ -74,11 +89,6 @@ fun SearchScreen(vm: SearchViewModel = viewModel()) {
         if (SearchViewModel.isCheckedSourcesStale()) {
             SearchViewModel.loadCheckedSources()
         }
-        val initTitle = activity?.intent?.getStringExtra("title")
-        if (!initTitle.isNullOrEmpty()) {
-            query = initTitle
-            vm.search(initTitle)
-        }
     }
 
     LaunchedEffect(query) {
@@ -86,7 +96,7 @@ fun SearchScreen(vm: SearchViewModel = viewModel()) {
         if (t.isEmpty()) {
             vm.clearSuggest()
         } else {
-            delay(300)
+            if (t.length > 1) delay(SuggestDebounceMs)
             vm.fetchSuggest(t)
         }
     }
@@ -152,38 +162,53 @@ fun SearchScreen(vm: SearchViewModel = viewModel()) {
             }
         },
     ) { topPad, _ ->
-        if (results.isEmpty() && !running && sitesEmpty) {
-            SearchEmptyBox(topPad = topPad, text = stringResource(R.string.search_no_site))
-        } else if (results.isEmpty() && !running) {
-            SearchIdleContent(
-                history = history,
-                hotSearch = hotSearch,
-                suggest = suggest,
-                topPad = topPad,
-                onSearch = { submit(it) },
-                onClearHistory = {
-                    HistoryHelper.clearSearchHistory()
-                    history = ArrayList()
+        Box(
+            modifier = Modifier
+                .fillMaxSize()
+                .pointerInput(Unit) {
+                    detectTapGestures(onTap = { focusManager.clearFocus() })
                 },
-                onRemoveHistory = { word ->
-                    HistoryHelper.removeSearchHistory(word)
-                    history = KV.get(HawkConfig.SEARCH_HISTORY, ArrayList())
-                },
-            )
-        } else {
-            SearchResultsContent(
-                results = results,
-                running = running,
-                selectedSource = selectedSource,
-                onSelectSource = { selectedSource = it },
-                resultLayout = resultLayout,
-                listState = resultListState,
-                searchedTitle = searchedTitle,
-                exactMatch = exactMatch,
-                topPad = topPad,
-                onCardClick = { context.openVodCardOrDetail(it) },
-                onCardLongClick = { vodMenu.show(it) },
-            )
+        ) {
+            if (results.isEmpty() && !running && sitesEmpty) {
+                SearchEmptyBox(topPad = topPad, text = stringResource(R.string.search_no_site))
+            } else if (results.isEmpty() && !running) {
+                SearchIdleContent(
+                    history = history,
+                    hotSearch = hotSearch,
+                    suggest = suggest,
+                    query = query,
+                    topPad = topPad,
+                    onSearch = { submit(it) },
+                    onClearHistory = {
+                        HistoryHelper.clearSearchHistory()
+                        history = ArrayList()
+                    },
+                    onRemoveHistory = { word ->
+                        HistoryHelper.removeSearchHistory(word)
+                        history = KV.get(HawkConfig.SEARCH_HISTORY, ArrayList())
+                    },
+                )
+            } else {
+                SearchResultsContent(
+                    results = results,
+                    running = running,
+                    selectedSource = selectedSource,
+                    onSelectSource = {
+                        focusManager.clearFocus()
+                        selectedSource = it
+                    },
+                    resultLayout = resultLayout,
+                    listState = resultListState,
+                    searchedTitle = searchedTitle,
+                    exactMatch = exactMatch,
+                    topPad = topPad,
+                    onCardClick = {
+                        focusManager.clearFocus()
+                        context.openVodCardOrDetail(it)
+                    },
+                    onCardLongClick = { vodMenu.show(it) },
+                )
+            }
         }
     }
 

@@ -27,6 +27,10 @@ object Http {
         return executeWithRetry(HttpRequest(url).apply(init).build(), client())
     }
 
+    suspend fun getOnce(url: String, init: HttpRequest.() -> Unit = {}): String {
+        return executeChecked(HttpRequest(url).apply(init).build(), client(), retry = false) { it.body.string() }
+    }
+
     suspend fun getRaw(url: String, init: HttpRequest.() -> Unit = {}): HttpRawResponse {
         return executeRawWithRetry(HttpRequest(url).apply(init).build(), client())
     }
@@ -47,11 +51,17 @@ object Http {
         return executeChecked(request, client) { HttpRawResponse(it.body.bytes(), it.headers, it.code) }
     }
 
-    private suspend fun <T> executeChecked(request: Request, client: OkHttpClient, read: (Response) -> T): T {
+    private suspend fun <T> executeChecked(
+        request: Request,
+        client: OkHttpClient,
+        retry: Boolean = true,
+        read: (Response) -> T,
+    ): T {
         return withContext(Dispatchers.IO) {
-            awaitResponse(request, client, 0).use { response ->
-                if (HttpPolicy.shouldFail(response.code)) throw HttpException(response.code)
-                read(response)
+            val response = if (retry) awaitResponse(request, client, 0) else execute(request, client)
+            response.use {
+                if (HttpPolicy.shouldFail(it.code)) throw HttpException(it.code)
+                read(it)
             }
         }
     }

@@ -12,6 +12,7 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.calculateStartPadding
+import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
@@ -395,7 +396,11 @@ fun SettingsPage(
 
 @Composable
 private fun AboutSheet(versionName: String, onDismiss: () -> Unit) {
-    AVBoxBottomSheet(onDismissRequest = onDismiss, title = stringResource(R.string.settings_about)) {
+    AVBoxBottomSheet(
+        onDismissRequest = onDismiss,
+        title = stringResource(R.string.settings_about),
+        modifier = Modifier.fillMaxHeight(AboutSheetHeightFraction),
+    ) {
         Column(
             modifier = Modifier
                 .fillMaxWidth()
@@ -418,6 +423,8 @@ private fun AboutSheet(versionName: String, onDismiss: () -> Unit) {
         }
     }
 }
+
+private const val AboutSheetHeightFraction = 0.6f
 
 private const val GITHUB_REPO_URL = "https://github.com/XiaochangXu/AVBox"
 

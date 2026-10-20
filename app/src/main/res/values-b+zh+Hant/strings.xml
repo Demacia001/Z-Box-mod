@@ -236,8 +236,9 @@
     <string name="preload_cache_size">快取容量</string>
 
     <string name="search_field_hint">搜尋片名、演員</string>
-    <string name="search_result_layout">結果顯示方式</string>
+    <string name="search_result_layout">搜尋結果顯示方式</string>
     <string name="search_site_empty">該站點暫無結果</string>
+    <string name="search_site_filter_hint">過濾</string>
     <string name="common_clear">清空</string>
     <string name="common_loading_more">載入中…</string>
     <string name="common_no_more">沒有更多了</string>
@@ -273,8 +274,8 @@
     <string name="search_home_poster">首頁海報</string>
     <string name="search_layout_horizontal">沉浸</string>
     <string name="search_layout_vertical">普通</string>
-    <string name="search_result_layout_horizontal">橫向展示</string>
-    <string name="search_result_layout_vertical">縱向展示</string>
+    <string name="search_result_layout_horizontal">卡片檢視</string>
+    <string name="search_result_layout_vertical">清單檢視</string>
     <string name="search_exact">精準搜尋</string>
     <string name="search_sites">搜尋站點</string>
     <string name="search_sites_none_hint">未選擇站點，將搜尋不到結果</string>
