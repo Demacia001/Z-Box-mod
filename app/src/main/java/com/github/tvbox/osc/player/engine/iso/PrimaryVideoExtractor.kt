@@ -17,6 +17,7 @@ class PrimaryVideoExtractor(
     private val delegate: Extractor,
     private val primaryVideoPid: () -> Int?,
     private val elapsedRealtimeMs: () -> Long = SystemClock::elapsedRealtime,
+    private val suppressedAudio: (Int) -> Boolean = { false },
 ) : Extractor {
 
     private var gate: PrimaryVideoExtractorOutput? = null
@@ -29,6 +30,7 @@ class PrimaryVideoExtractor(
             primaryVideoPid,
             deferTracks = gate == null,
             elapsedRealtimeMs = elapsedRealtimeMs,
+            suppressedAudio = suppressedAudio,
         )
         gate = created
         delegate.init(created)
@@ -54,10 +56,12 @@ internal class PrimaryVideoExtractorOutput(
     private val primaryVideoPid: () -> Int?,
     private val deferTracks: Boolean,
     private val elapsedRealtimeMs: () -> Long,
+    private val suppressedAudio: (Int) -> Boolean = { false },
 ) : ExtractorOutput {
 
     private val declaredVideo = HashSet<Int>()
     private val skipped = HashSet<Int>()
+    private val suppressed = HashSet<Int>()
     private val pending = LinkedHashMap<Int, DeferredTrackOutput>()
     private val openedAtMs = elapsedRealtimeMs()
     private var audioVideoFormatted = false
@@ -76,6 +80,12 @@ internal class PrimaryVideoExtractorOutput(
                 return DiscardTrackOutput
             }
             declaredVideo.add(id)
+        }
+        if (type == C.TRACK_TYPE_AUDIO && suppressedAudio(id)) {
+            if (suppressed.add(id)) {
+                LOG.i("echo-iso-audio-skip:$id")
+            }
+            return DiscardTrackOutput
         }
         if (!deferTracks) return inner.track(id, type)
         val deferred = DeferredTrackOutput(this, id, type)

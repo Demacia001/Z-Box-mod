@@ -1,10 +1,12 @@
 package com.github.tvbox.osc.player
 
+import android.net.Uri
 import android.text.TextUtils
 import androidx.media3.exoplayer.mediacodec.MediaCodecSelector
 import com.github.tvbox.osc.R
 import com.github.tvbox.osc.bean.VodInfo
 import com.github.tvbox.osc.data.EpisodeMatcher
+import com.github.tvbox.osc.player.engine.iso.IsoAudioFallback
 import com.github.tvbox.osc.player.engine.iso.IsoBandwidthGuard
 import com.github.tvbox.osc.player.engine.iso.IsoSessionSignal
 import com.github.tvbox.osc.player.engine.iso.IsoThroughput
@@ -109,6 +111,52 @@ class PlaybackRetryDelegate(private val host: Host) {
         return ExoPlayer.ERROR_KIND_UNKNOWN
     }
 
+    private fun exoLastErrorTrackKind(): Int {
+        try {
+            val live = host.view()?.mediaPlayer()
+            if (live is ExoPlayer) return live.lastErrorTrackKind()
+        } catch (ignored: Throwable) {
+            LOG.d("PlaybackController", "exo error track kind probe failed")
+        }
+        return ExoPlayer.ERROR_TRACK_UNKNOWN
+    }
+
+    private fun exoLastErrorFormatId(): String? {
+        try {
+            val live = host.view()?.mediaPlayer()
+            if (live is ExoPlayer) return live.lastErrorFormatId()
+        } catch (ignored: Throwable) {
+            LOG.d("PlaybackController", "exo error format id probe failed")
+        }
+        return null
+    }
+
+    private fun tryAudioTrackFallback(): Boolean {
+        val st = host.attemptState()
+        if (st.hasAutoSwitchedAudioTrack) return false
+        val webUrl = host.webPlayUrl() ?: return false
+        if (TextUtils.isEmpty(webUrl)) return false
+        val pid = IsoAudioFallback.pidOfFormatId(exoLastErrorFormatId())
+        if (pid == null) {
+            LOG.i("echo-autoRetry audio track fallback: no pid")
+            return false
+        }
+        st.hasAutoSwitchedAudioTrack = true
+        IsoAudioFallback.suppress(Uri.parse(webUrl).toString(), pid)
+        LOG.i("echo-autoRetry audio track fallback:$pid")
+        val view = host.view()
+        if (view != null && view.isPageAlive()) {
+            view.runOnUi { view.toast(PlaybackController.str(R.string.player_audio_track_fallback_tip)) }
+        }
+        host.stopParse()
+        host.initParseLoadFound()
+        st.playbackStarted = false
+        if (view != null && !host.isCrossContentReuseAllowed()) view.releasePlayer()
+        if (view != null) host.playUrl(webUrl, host.webHeaderMap())
+        st.hasAutoSwitchedAudioTrack = true
+        return true
+    }
+
     private fun softwareDecodeCandidateName(): String? {
         val exo = host.view()?.mediaPlayer() as? ExoPlayer ?: return null
         val mime = exo.selectedVideoFormat?.sampleMimeType ?: return null
@@ -118,6 +166,7 @@ class PlaybackRetryDelegate(private val host: Host) {
     }
 
     private fun trySoftDecodeFallback(): Boolean {
+        if (exoLastErrorTrackKind() == ExoPlayer.ERROR_TRACK_AUDIO) return false
         val st = host.attemptState()
         val cfg = host.playerCfg() ?: return false
         if (st.hasAutoSwitchedDecode) return false
@@ -171,6 +220,11 @@ class PlaybackRetryDelegate(private val host: Host) {
     fun retryAfterStartedError(): Boolean {
         if (dropRetryIfCastAborted("retryAfterStartedError")) return false
         val st = host.attemptState()
+        if (exoLastErrorKind() == ExoPlayer.ERROR_KIND_DECODE
+            && exoLastErrorTrackKind() == ExoPlayer.ERROR_TRACK_AUDIO
+        ) {
+            return tryAudioTrackFallback()
+        }
         if (isoSessionLike(st) && exoLastErrorKind() != ExoPlayer.ERROR_KIND_DECODE) {
             val view = host.view()
             val durationMs = view?.mediaPlayer()?.duration?.takeIf { it > 0L } ?: (view?.duration() ?: 0L)
@@ -292,6 +346,11 @@ class PlaybackRetryDelegate(private val host: Host) {
             if (view != null && !host.isCrossContentReuseAllowed()) view.releasePlayer()
             if (view != null) host.playUrl(requireNotNull(webUrl), host.webHeaderMap())
             return true
+        }
+        if (exoErrorKind == ExoPlayer.ERROR_KIND_DECODE
+            && exoLastErrorTrackKind() == ExoPlayer.ERROR_TRACK_AUDIO
+        ) {
+            return tryAudioTrackFallback()
         }
         if (exoErrorKind != ExoPlayer.ERROR_KIND_NETWORK && trySoftDecodeFallback()) return true
         if (webUrl != null) {

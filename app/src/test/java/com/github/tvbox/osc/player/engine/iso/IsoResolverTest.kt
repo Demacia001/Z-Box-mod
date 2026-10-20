@@ -13,6 +13,7 @@ class IsoResolverTest {
     @Before
     fun clearVolumeCache() {
         IsoVolumeCache.clear()
+        IsoPlaylistState.reset()
     }
 
     @Test
@@ -62,6 +63,28 @@ class IsoResolverTest {
         assertThrows(IsoFormatException::class.java) {
             resolver.resolve(probe, RangeBlockReader { _, length -> ByteArray(length) })
         }
+    }
+
+    @Test
+    fun resolve_republishesStreamLanguagesOnCacheHit() {
+        val image = UdfImageBuilder(useMetadataPartition = true).image()
+        val probe = probe(image)
+        val resolver = IsoResolver()
+        val first = resolver.resolve(probe, reader(image, AtomicInteger()))
+        val key = isoFingerprint(probe.totalLength, probe.firstBytes)
+        IsoVolumeCache.put(
+            key,
+            first.copy(
+                streams = listOf(IsoStream(4768, "eng"), IsoStream(4770, "zho")),
+                videoPid = 4113,
+            ),
+        )
+        IsoPlaylistState.reset()
+        resolver.resolve(probe, RangeBlockReader { _, _ -> error("cache miss") })
+
+        assertEquals("zho", IsoPlaylistState.languageForPid(4770))
+        assertEquals("eng", IsoPlaylistState.languageForPid(4768))
+        assertEquals(4113, IsoPlaylistState.videoPid())
     }
 
     private fun probe(image: ByteArray) =

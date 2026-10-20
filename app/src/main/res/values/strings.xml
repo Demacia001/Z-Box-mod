@@ -57,6 +57,7 @@
     <string name="player_error_sniff">嗅探错误</string>
     <string name="player_error_play">视频播放出错</string>
     <string name="player_decode_exceeds_capability">超出内核解码能力上限</string>
+    <string name="player_decode_10bit_tip">该线路为 10-bit 编码，设备不支持</string>
     <string name="player_no_audio_track">没有音轨</string>
     <string name="player_switch_audio_track">切换音轨</string>
     <string name="player_no_video_track">没有视轨</string>
@@ -530,6 +531,7 @@
     <string name="player_iso_bandwidth_low">网盘限速，带宽不足</string>
     <string name="player_play_error_retry">播放出错，自动重试</string>
     <string name="player_decode_fallback_tip">硬解失败，已切换软解重试</string>
+    <string name="player_audio_track_fallback_tip">音轨无法解码，自动切换</string>
     <string name="player_call_external_play">推送到%1$s进行播放</string>
     <string name="player_call_external_result">推送到%1$s%2$s</string>
 

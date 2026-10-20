@@ -5958,3 +5958,33 @@ echo-exo-selector: mime=video/avc preferSoft=false count=3 first=c2.qti.avc.deco
 **未改**：Hero 的 landscape backdrop（`resolveBackdrops` 仍复用 `ensureStills`）不动；TV 分集缩略图、映射规则、季/集缓存全部不动。
 
 **验证**：`:app:assembleDebug` + `:app:testDebugUnitTest` → `BUILD SUCCESSFUL`（39s），**1292 例 / 170 类 / 0 失败 / 3 跳过**（`TmdbPosterTest` 13/13）。**未真机**。**走查判据**：①TMDB 命中的电影，选集是一张整宽卡、完整显示资源名（不截断、可换行），没有 16:9 缩略图；②同一部片之前看过的旧缓存不会再冒图（前缀已换）；③TMDB 命中的电视剧选集仍是 16:9 剧照卡，集号/标题/选中描边不变；④未命中的片保持原来的纯文字小卡。**未提交**。
+
+## 10-bit 片源给出明确提示（2026-10-20，用户拍板文案）
+
+**背景**：真机播放一条 HLS 线路时报错，日志把原因说得很清楚 —— `format=Format(… video/mp2t, video/avc, avc1.6E002A, … ColorInfo(BT709, Limited range, SDR SMPTE 170M, false, 10bit Luma, 10bit Chroma))`、`format_supported=NO_EXCEEDS_CAPABILITIES`、`MediaCodecVideoDecoderException: Decoder failed: c2.qti.avc.decoder`；自动切软解后 `c2.android.avc.decoder` 同样失败。`avc1.6E002A` = H.264 **High 10 Profile**（profile_idc 110）@ L4.2，即 10-bit H.264（Hi10P），手机两块 AVC 解码器都只到 8-bit。原提示是通用的「超出内核解码能力上限」，用户看不出是"线路编码"的问题。
+
+**落地（4 文件 + 1 测试）**：
+
+- `PlayerEngine`：新增 `isTenBitFormat(ColorInfo?)`（`lumaBitdepth >= 10 || chromaBitdepth >= 10`，未设置的 `-1` 自然不成立）+ `lastErrorTenBitFormat`，在 `handlePlayerError` 里从 `ExoPlaybackException.rendererFormat.colorInfo` 取值，`resetSessionFlags()` 复位；
+- `ExoPlayer.lastErrorTenBitFormat()` / `PlaybackController.isLastErrorTenBitFormat()`：沿用 `lastErrorExceedsDecodeCapability` 的包装链（同样 try/catch 兜住探针失败）；
+- `PlayContainerOverlays.terminalErrorText()`：**超出能力且是 10-bit** → 新文案 `player_decode_10bit_tip`「该线路为 10-bit 编码，设备不支持」；其余超出能力的情况仍用旧文案「超出内核解码能力上限」，不改语义；
+- `strings.xml` / `values-en` / `values-b+zh+Hant`：`player_decode_10bit_tip` 三套齐（繁中「此線路為 10-bit 編碼，裝置不支援」/ 英「This line is 10-bit encoded, which this device does not support」）。
+
+**未改**：自动重试阶梯不动 —— 仍会先试软解、再换播放器、再换线路（下一条线路可能是 8-bit，换线是有意义的）；只有整条阶梯走完、要落"终态提示"时才换成新文案。也没有给 10-bit 单独做"提前放弃"，因为设备能力是按格式判断的，误判一次就会让本可换线解决的片源直接失败。
+
+**测试**：`PlayerEngineErrorTest` 11 → 12 例（`isTenBitFormat_detectsDeepColorOnly`：null / 默认 / 8-bit → false，10-bit / 12-bit / 仅 luma 10-bit → true）；全量 **1319 例 / 0 失败 / 3 跳过**；`null_assert_gate` PASS、`i18n_gate` TOTAL 44（三套 values 键值齐）；`assembleDebug` 55,939,804 B，已装 V2425A。
+
+**验收缺口与补法**：`terminalErrorText` 原本不落日志 —— 23:48 那次真机复现时，日志能证明"条件都成立"（`NO_EXCEEDS_CAPABILITIES` + `10bit Luma, 10bit Chroma` + `kernel=ExoPlayer` 仍在），却证明不了屏幕上到底显示哪一句。所以补了一条 **`echo-player tip: <文案> | stub=… bandwidth=… exceeds=… tenBit=…`**（每次终态提示 1 行，`echo-player` 已在 `FILE_LOG_PREFIXES`），四个判定值一起打出来。判据 = 出现 `echo-player tip: 该线路为 10-bit 编码，设备不支持` 且 `exceeds=true tenBit=true`。
+
+**真机验证通过（23:51）**：同一条 10-bit 线路重放，阶梯走完后一条：
+
+```
+23:51:30.756  echo-setDataSource: …/index.m3u8
+23:51:31.079  echo-exo-codec-init: name=c2.android.avc.decoder kind=SOFTWARE preferSoft=true
+23:51:31.104  echo-exo-player-error: ERROR_CODE_DECODING_FAILED, avc1.6E002A, 10bit Luma/Chroma
+23:51:31.105  echo-autoRetry switch player and replay current url
+23:51:31.106  echo-autoRetry line switching disabled          ← 阶梯走完
+23:51:31.108  echo-player tip: 该线路为 10-bit 编码，设备不支持 | stub=false bandwidth=false exceeds=true tenBit=true
+```
+
+即四条件全对：`exceeds=true`、`tenBit=true`，文案分支命中，且整次终态只打一行（不重复）。

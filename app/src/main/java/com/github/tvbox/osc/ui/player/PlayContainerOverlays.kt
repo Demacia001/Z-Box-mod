@@ -5,6 +5,7 @@ import android.widget.Toast
 import com.github.tvbox.osc.R
 import com.github.tvbox.osc.player.danmu.DanmuLoadController
 import com.github.tvbox.osc.player.state.DanmuSearchSheetState
+import com.github.tvbox.osc.util.LOG
 import master.flame.danmaku.ui.widget.DanmakuView
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -170,14 +171,22 @@ internal class PlayContainerOverlays(private val host: PlayContainer) {
         }
     }
 
-    private fun terminalErrorText(err: String): String =
-        if (host.scheduler.isSourceStub()) {
-            host.context.getString(R.string.player_source_invalid)
-        } else if (host.scheduler.isIsoBandwidthStopped()) {
-            host.context.getString(R.string.player_iso_bandwidth_low)
-        } else if (host.scheduler.isLastErrorExceedsDecodeCapability()) {
-            host.context.getString(R.string.player_decode_exceeds_capability)
-        } else {
-            err
+    private fun terminalErrorText(err: String): String {
+        val text = when {
+            host.scheduler.isSourceStub() -> host.context.getString(R.string.player_source_invalid)
+            host.scheduler.isIsoBandwidthStopped() -> host.context.getString(R.string.player_iso_bandwidth_low)
+            host.scheduler.isLastErrorExceedsDecodeCapability() -> host.context.getString(
+                if (host.scheduler.isLastErrorTenBitFormat()) R.string.player_decode_10bit_tip
+                else R.string.player_decode_exceeds_capability,
+            )
+            else -> err
         }
+        LOG.i(
+            "echo-player tip: $text | stub=" + host.scheduler.isSourceStub() +
+                " bandwidth=" + host.scheduler.isIsoBandwidthStopped() +
+                " exceeds=" + host.scheduler.isLastErrorExceedsDecodeCapability() +
+                " tenBit=" + host.scheduler.isLastErrorTenBitFormat(),
+        )
+        return text
+    }
 }

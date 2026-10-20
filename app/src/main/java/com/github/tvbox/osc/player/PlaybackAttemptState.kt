@@ -15,6 +15,9 @@ class PlaybackAttemptState {
     var hasAutoSwitchedDecode: Boolean = false
 
     @JvmField
+    var hasAutoSwitchedAudioTrack: Boolean = false
+
+    @JvmField
     var autoSwitchedDecodeOld: String? = null
 
     @JvmField
@@ -108,6 +111,7 @@ class PlaybackAttemptState {
         allowSwitchPlayer = true
         hasAutoSwitchedPlayer = false
         hasAutoSwitchedDecode = false
+        hasAutoSwitchedAudioTrack = false
         hasRetriedAfterStart = false
         hasRetriedSameUrlOnBoot = false
         usedPreloadedResult = false
@@ -134,6 +138,7 @@ class PlaybackAttemptState {
     fun resetAutoRetryLadder() {
         allowSwitchPlayer = true
         hasAutoSwitchedPlayer = false
+        hasAutoSwitchedAudioTrack = false
         hasRetriedSameUrlOnBoot = false
         hasRefreshedOnFormatError = false
         hasRefreshedOnIsoHttpError = false

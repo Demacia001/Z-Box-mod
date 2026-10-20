@@ -40,7 +40,7 @@ class PgsReader(
                 .build(),
         )
         output = trackOutput
-        LOG.i("echo-iso-pgs-format")
+        LOG.i("echo-iso-pgs-format:pid=${idGenerator.trackId}:lang=${language ?: "-"}")
     }
 
     override fun packetStarted(timeUs: Long, flags: Int) {

@@ -373,6 +373,8 @@ AT::add  sr=48000  mask=0x3F(5.1)  session=257    ← 出声
 adb exec-out run-as com.github.avbox.osc cat cache/iso-volume/<总长>_<前4KB哈希>.snap
 ```
 
+> 快照自 2026-10-20 22:40 起改存 `files/iso-volume/`(§13.6),上面是当时的路径;`cache/iso-volume` 会被首次访问清掉。另注意:BD 盘前 4KB 常为全零,`<前4KB哈希>` 恒为 `ad7facb2…`(= `sha256(4096B 0)`),真正区分盘的是 `<总长>`。
+
 按 `IsoVolumeSnapshot` 的格式(`MAGIC/VERSION/目录数` → 每个条目 `name/directory/length/extents/inline`)解开,就得到每个 m2ts/mpls/clpi 的 `extents` **以及内联内容**(≤64KB 的文件整体存在快照里,多数 mpls、clpi 都在其中),只有少数大 mpls 需要再发一次 `Range`。脚本:`.iso_forensics/snapprobe.py`(看结构)、`snapdump.py`(导出内联文件)、`rankcheck.py`(逐条播放列表算"声明时长 vs 去重时长")、`discD_mpls.py`(按快照给的 offset 拉大 mpls 并解析 play item/STN)。
 
 盘 E 没有快照可用(解析在建立快照之前就失败了),只能回到最原始的办法:直接 `Range` 读 sector 16 起的 21 个扇区看出布局,再用 `.iso_forensics/discG_probe.py` 把 UDF 走一遍列目录与播放列表 —— **根因就是靠这两步定死的**,只看应用日志只会得到一句 `volume recognition missing`。
@@ -1209,7 +1211,7 @@ echo-iso-idr-miss:00016.m2ts:229486272:66440   ← 16MB 内一个 IDR 都没有
 |---|---|---|---|
 | 1 | 播放期带宽打点 `echo-iso-bps:<10s窗口>:<累计平均>:<需要>`,10s 一条、单会话上限 60 条 | `IsoThroughput` + `IsoBandwidthLogger` | 下次日志有真实吞吐 |
 | 2 | 播放稳定 6s 后后台预热 playlist 全部 `.clpi`(8 个 ≈80KB) | `IsoPrepare` | 跨段 seek −0.5~0.6s |
-| 3 | 卷快照落盘(`cacheDir/iso-volume/<len>_<sha256>.snap`),下次起播跳过 UDF 解析 | `IsoVolumeSnapshot`/`CachedVolume`/`IsoDiskCache` | 重启后起播 4.6s → ~1.2-1.5s |
+| 3 | 卷快照落盘(`cacheDir/iso-volume/<len>_<sha256>.snap`,下次起播跳过 UDF 解析;现改为 `filesDir`,见 §13.6) | `IsoVolumeSnapshot`/`CachedVolume`/`IsoDiskCache` | 重启后起播 4.6s → ~1.2-1.5s |
 
 #### 13.2.1 首轮真机结果(2026-10-20 05:06-05:09)
 
@@ -1311,3 +1313,167 @@ echo-iso-idr-miss:00016.m2ts:229486272:66440   ← 16MB 内一个 IDR 都没有
 
 如果将来非要并行:只能"快照缺失时 + 并发上限 2 + 任一失败即整体放弃"。
 
+### 13.6 目录快照改存 `filesDir`(2026-10-20 22:40)
+
+**起因**:用户问「可以将快照挪 filesDir 吗」。核查后确认这不是洁癖问题,而是收益真的会被白丢:
+
+- 快照的价值在 §13.2.3 量过 —— 命中后 prepare→codec-init **5.29s→2.20s**,省掉的正是 1.6–2.6s 的 UDF 往返;
+- 而它原来住在 `cacheDir/iso-volume`,凡是清 `cacheDir` 的都会把它带走:应用自己的「清除缓存」(`SettingsPage.kt:145` → `FileUtils.clearCache()`,`FileUtils.kt:326` 遍历删 `cacheDir` 全部子项)、系统设置/应用信息里的"清除缓存"、低存储回收;
+- ⇒ 越是常清缓存的用户,越要每次吃满那 3 秒。`filesDir` 只有"卸载/清除数据"才没,符合"重建代价高、体积小"的派生数据该待的地方(项目里 `JarLoader` 的 `filesDir/csp/`、`AppBootstrap` 的 `filesDir/<md5>` 是同一个判据)。
+
+**改法**(`IsoDiskCache.kt`):
+
+| 项 | 改前 | 改后 |
+|---|---|---|
+| 目录 | `File(context.cacheDir, "iso-volume")` | `File(context.filesDir, "iso-volume")` |
+| 淘汰 | 靠系统清 cache + 自身 `MAX_FILES=8`/`1MB` | **只剩自身淘汰**(`lastModified`,≤8 个,总量 ≤8MB) |
+| 旧位置 | — | 首次 `directory()`(或首次清缓存)整目录删并打 `echo-iso-cache-legacy-drop:<n>`(见下"为什么非要删") |
+| 应用内「清除缓存」 | 隐式删(整个 `cacheDir`) | **显式删**:`SettingsViewModel.clearCache()` 调 `IsoDiskCache.clear()`,并把 `bytesOnDisk()` 计入显示的大小 |
+
+**用户拍板的策略**:搬家要躲的是**用户控制不了的那些回收**(系统低存储、系统设置里清缓存),不是用户自己按的按钮。所以「清除缓存」继续清快照(语义、数字都诚实:显示大小含这 ≤8MB),`filesDir` 带来的持久化只用来抵住系统侧的无差别回收。副作用:`IsoDiskCache.clear()` 现在不再顺带建目录(`directory()` 会 `mkdirs`),改成直接算路径。
+
+**为什么非要删旧目录**:旧 `.snap` 留在 `cache/iso-volume` 会让取证直接错 —— 档案上文(甲)教人用 `run-as … cat cache/iso-volume/<len>_<hash>.snap` 拉快照,目录里还剩旧文件的话,会读到"看似有效、实际已不被使用"的快照,进而把"缓存没生效"误判成"缓存生效了"。顺便也回收那几 MB。
+
+**顺带查到的两件事**:
+
+1. 真机上当时正躺着两份旧快照:`103527874560_ad7facb2….snap`(79,359B,22:42)与 `47073787904_ad7facb2….snap`(25,204B,22:10)。两份**指纹完全相同**,且等于 `sha256(4096 字节 0)` ⇒ **BD 盘前 4KB 是全零**,`isoFingerprint` 的身份成分实际只剩总长。同长的不同盘会互撞。已记入规范 `§9-10`(已知风险,未修);
+2. 规范 §3 把 `IsoDiskCache.kt` 描述成"目录快照与 clpi 缓存",实际它**完全不碰 clpi**(clpi 预取是 `IsoPrepare` 写内存 Map),一并改正。
+
+**验证**:
+
+- `IsoDiskCacheTest` 5 → **9** 例(新增 `dropLegacy_removesOldCacheDirectory`、`dropLegacy_absentDirectory_returnsZero`、`bytesIn_countsSnapshotsOnly`、`bytesIn_missingDirectory_returnsZero`,走 `dropLegacyInto`/`bytesIn` 注入目录,不依赖 Context);
+- 全量 **1302 通过 / 0 失败 / 3 跳过**;`null_assert_gate` PASS;`i18n_gate` TOTAL 44;`assembleDebug` 55,590,382B,已装 V2425A(`10AF1J04JX0016G`)。
+- **未在设备上跑过**(要点播放/进设置才触发):预期下次 ISO 起播先完整解析一次(旧位置无 `files/iso-volume`)、日志出现一次 `echo-iso-cache-legacy-drop:2`、`cache/iso-volume` 消失、6s 后 `echo-iso-cache-save` 落在 `files/iso-volume`;点「清除缓存」后归零且 `files/iso-volume` 变空(显示口径不变:旧位置的 104KB 本来就在统计里,只是换了盘上的位置)。
+
+
+
+### 13.7 「硬解失败」是假警报:音频解码失败被当成视频硬解失败(2026-10-20 22:55)
+
+**现象**:《拯救大兵瑞恩》4K DV 续播(39,574ms)时弹「硬解失败,已切换软解重试」,但画面一直是硬的。
+
+```
+22:55:10.958  echo-iso-cache-hit:5:1                              ← 快照命中,续播 39,574ms(RAP 35,993)
+22:55:13.959  echo-exo-player-error: code=ERROR_CODE_DECODING_FAILED,
+              msg=FfmpegAudioRenderer error, index=3,
+              format=Format(1/4359, …, audio/vnd.dts.hd, …, [6, -1, 48000]),
+              format_supported=YES | cause[0]=FfmpegDecoderException: Error decoding
+22:55:13.961  echo-autoRetry hard->soft decode: …
+22:55:16.159  echo-exo-codec-init: name=c2.qti.hevc.decoder kind=HARDWARE preferSoft=true
+22:55:20.186  echo-player-audio-codec: mime=audio/ac3 name=ffmpeg.ac3.decoder …       ← 重试后音轨变英文 AC-3
+```
+
+**根因(两层)**:
+
+1. **归类错**:`PlayerEngine.classifyError` 只看错误码名(`ERROR_CODE_DECOD…` → `ERROR_KIND_DECODE`),不区分是哪类轨;`PlaybackRetryDelegate.autoRetry()` 里 `exoErrorKind != ERROR_KIND_NETWORK` 就调 `trySoftDecodeFallback()`,于是①把整台播放器切软解、②弹 `player_decode_fallback_tip`。实测**视频始终是 `c2.qti.hevc.decoder` 硬解**(`preferSoft=true` 也没换掉它),提示与行为都不成立。
+2. **音频轨真的解不了**:选中的是 PID 4359(中文 DTS-HD MA 5.1),media3 的 `DtsReader` 把这条轨判成 `audio/vnd.dts.hd`,ffmpeg 的 dca 处理不了 ⇒ `FfmpegDecoderException`。同一部片 **22:43 从 0 起播时同一条轨被判成 `audio/vnd.dts`(core),正常出声**;22:57 从 424,630ms 续播也没复现 —— 推断 mime 取决于起读点是否落在带 EXTSS 的帧上(`DtsReader` 按首帧头定 mime),但**未取到 ffmpeg 原生日志**(设备 logcat 环形缓冲已把该行滚掉),所以只记"未根治"。
+
+**修复(1+2,按用户要求一起做;提示文案定为「音轨无法解码,自动切换」)**:
+
+| 改动 | 位置 | 说明 |
+|---|---|---|
+| 失败轨类型 | `PlayerEngine` | `classifyTrackKind(error/mime)` 读 `ExoPlaybackException.rendererFormat.sampleMimeType`,记 `lastErrorTrackKind` / `lastErrorFormatId`,经 `ExoPlayer` 包装层暴露;契约常量 `ERROR_TRACK_*` |
+| 音频专用回退 | `PlaybackRetryDelegate` | `tryAudioTrackFallback()`:`ERROR_KIND_DECODE` + 音频轨 ⇒ 拉黑该 PID → 重建 → toast `player_audio_track_fallback_tip`;**不碰** `exo` 解码设置;音频分支**直接 return**(不再往下走"切内核/换线路"),`trySoftDecodeFallback()` 里另加"音频直接 return false"兜底 |
+| 拉黑落地 | `IsoAudioFallback`(新) | 按内容(VOD URL,`Uri.parse(...).toString()` 归一)记 PID;`IsoExtractorsFactory` 把内容键传进 `PrimaryVideoExtractor`,后者对拉黑音频 `return DiscardTrackOutput` 并打 `echo-iso-audio-skip:<pid>` |
+| 诊断日志 | `PlayerEngine.reportAudioFormat` | 每次选中的音轨变化打一条 `echo-iso-audio-format:<id>:<mime>:ch=`(这正是这次缺的证据) |
+
+**验证**:`IsoAudioFallbackTest` 6 例、`PrimaryVideoExtractorTest` 17→20 例、`PlayerEngineErrorTest` 9→11 例;全量 **1313 通过 / 0 失败 / 3 跳过**;`null_assert_gate` PASS;`i18n_gate` TOTAL 44(新文案三套 values 齐);`assembleDebug` 55,939,524B,已装 V2425A。
+
+**真机复现(23:11,修复后第一次触发)**:整条链路按设计走完,并顺手把"为什么间歇"这个问题答了:
+
+```
+23:11:48.195  echo-iso-cache-hit:5:1                       ← 快照命中,续播 634,210ms
+23:11:50.911  echo-iso-audio-format:null:audio/vnd.dts:ch=6      ← 起读时是 core
+23:11:51.069  echo-exo-codec-init: c2.qti.hevc.decoder kind=HARDWARE preferSoft=false
+23:11:51.145  echo-exo-player-error: … FfmpegAudioRenderer error, format=…audio/vnd.dts.hd…  ← 234ms 后同一轨升级成 dts.hd
+23:11:51.146  echo-autoRetry audio track fallback:4359            ← 新逻辑,不再硬切软解
+23:11:52.334  echo-iso-audio-skip:4359                            ← 拉黑生效,该轨不再声明
+23:11:53.481  echo-iso-audio-format:null:audio/ac3:ch=6           ← 自动落到 AC-3(TrueHD core)轨
+23:11:53.524  echo-exo-codec-init: … preferSoft=false             ← 解码设置没被动
+23:11:55.337  echo-progress sample: pos=633599                    ← 续播继续,此后无 error
+```
+
+**由此更正了之前的推断**:不是"续播落点"的锅,而是**同一条轨在播放中途被 `DtsReader` 升级**:起读那几十毫秒是 core 帧(`audio/vnd.dts`),遇到第一个 EXTSS 帧后 media3 重新发一条 `audio/vnd.dts.hd` 的 Format,ffmpeg 随即解不动。所以"什么时候遇到 EXTSS"决定复现与否 —— 这与"39.5s 失败、424.6s 正常"完全吻合,也解释了 `echo-iso-audio-format` 为什么先是 dts 再变 dts.hd。
+
+**副作用(须知)**:回退后该内容的中文 DTS-HD 轨在本次会话内被一直拉黑,音轨落到英文 AC-3;这是有意的(见 D10),但意味着要根治必须做 §9-11 的"只送 core"。
+
+**根治(同轮,方案 A)**:`0x85`/`0x86` 不再交给 media3 的 `DtsReader`,改用自研 `DtsCoreReader` —— 只认 DTS core 同步字(0x7FFE8001,含 LE/14-bit 变体),用 `DtsUtil.getDtsFrameSize` 按 core 帧长截断,**EXTSS 字节在扫描下一帧时被自然跳过**,Format 由 `DtsUtil.parseDtsFormat` 生成、mime 恒为 `audio/vnd.dts`(带上 core 的声道数/采样率/码率)。这样"送解码的字节"与 23:11 之前能正常出声的形态完全一致。`0x82`(纯 DTS)仍走 media3 `DtsReader`,不受影响。
+
+- 新日志:`echo-iso-dts-hd:…:core=1`(工厂侧,一次/盘)、`echo-iso-dts-core:ch=<n>:rate=<n>`(reader 首次发 Format);
+- 单测 `DtsCoreReaderTest` 4 例:core+EXTSS 交替时只出 core 样本、垃圾前缀可重新同步、跨 PES 的帧拼得回来、`seek()` 后仍在找同步且不重发 Format;
+- 坑:media3 1.11 的 `ParsableByteArray.readUnsignedByte()/readBytes()` 会触发测试期断言(`IsRunningInTestHolder` 在本项目 JVM 单测里初始化失败),所以 reader 里改用 `data.data` + `position/limit` + `skipBytes`,与 `Ac3CoreReader` 的写法一致;
+- **真机验证通过(23:22)**:同一部片、同一续播点(684,637ms),日志::
+
+```
+23:22:27.619  echo-iso-dts-hd:type=134:lang=null:core=1        ← 0x86 走 core 路径
+23:22:29.666  echo-iso-dts-core:ch=6:rate=48000                 ← 三条 DTS-HD 轨各一条(4359/4360/4361)
+23:22:29.676  echo-iso-audio-format:null:audio/vnd.dts:ch=6      ← 全程 core,不再变 dts.hd
+23:22:29.738  echo-exo-codec-init: c2.qti.hevc.decoder HARDWARE preferSoft=false
+23:22:31.668  echo-music session gate: PLAYING hasAudio=true audioPlayback=true
+23:22:38.042  echo-bar-draw: 689s → 690s                         ← 进度正常推进
+```
+
+  全程**没有** `echo-exo-player-error`、`echo-autoRetry audio track fallback`、`echo-iso-audio-skip` —— 既没崩也没换轨。
+
+**保留的兜底**:C13/D10 的"音频失败换音轨"仍在。若 `DtsCoreReader` 在某张盘上仍失败,回退会静默换轨而不是弹假提示。
+
+### 13.8 字幕菜单只剩"字幕1/2/3":卷缓存命中时语言表没重建(2026-10-20 23:30)
+
+**现象**:内置字幕列表全是 `字幕1 … 字幕15`,没有英语/国语/日语;同一部片有时候又正常("概率性时好时坏")。
+
+**日志时间线(同一次启动、同一张盘)**:
+
+```
+23:30:12.473  echo-iso-lang:pid=4770:type=3:lang=zho      ← 第一次 prepare,15 条 PGS 全查到语言
+23:30:16.125  echo-setTrack subtitle-list: 字幕1 - 英语 PGS … 字幕15 - 日语 PGS   ✅
+23:30:20.947  echo-p2 detach page=…                        ← 退出播放页
+23:30:38.063  echo-p2 attach … / onNewPlayStarted          ← 重新进同一集
+23:30:38.533  echo-iso-prepare-rap:0                       ← 重建媒体源(IsoPlaylistState.reset())
+23:30:39.411  echo-iso-lang:pid=4352:type=1:lang=-         ← 连音轨都变成 -
+23:30:39.420  echo-iso-lang:pid=4768:type=3:lang=-         ← 字幕也 -
+23:30:44.093  echo-setTrack subtitle-list: 字幕1 PGS …     ❌
+```
+
+第二次 prepare 期间**没有任何** `echo-iso-cache-hit` / `echo-iso-playlist` / `echo-iso-streams` / `echo-iso-stream-lang`。
+
+**根因**:三件事凑到一起 ——
+
+1. `MediaSources.createIsoMediaSource()` 每次都 `IsoPlaylistState.reset()`,把 `pid→语言`表清空;
+2. 该表只在 `IsoLocator.locateSelection()` 里 `publishStreams()` 发布;
+3. 第二次播放同一张盘时 `IsoResolver.resolve()` 命中 `IsoVolumeCache`(进程内 LRU 4 条 / TTL 10 分钟,`IsoResolver.kt`),**直接返回缓存里的 `IsoVolumeInfo`,根本不跑 locate**。
+
+于是"清空"发生、"重建"没发生,所有轨(10 条音轨 + 15 条字幕)同时失去语言;字幕名只剩 `字幕N` + 从 `codecs` 推出来的 `PGS`。
+
+**为什么看起来是概率**:首次冷进(或超过 TTL、缓存被挤出)必好;退出重进、换线路重播、10 分钟内再播必坏。23:22 那次看似正常,是因为走的是**磁盘快照**(`echo-iso-cache-hit`),那条路仍然会跑 `locateSelection()` —— 磁盘快照只缓存 UDF 目录树,不缓存选片结果。
+
+**修复**:把语言表挂进 `IsoVolumeInfo`,在 `IsoResolver.resolve()` 里每次(含缓存命中)重新发布。
+
+| 改动 | 位置 | 说明 |
+|---|---|---|
+| 记住语言表 | `IsoLocator` | `selectedStreams` / `selectedVideoPid`,在 `locateSelection()` 里设值(不再直接 publish) |
+| 随缓存带语言表 | `IsoVolumeInfo` | 新增 `streams` / `videoPid` 两个字段,`loadVolume()`(磁盘快照命中)与 `parse()` 两条路径都填 |
+| 每次会话重发 | `IsoResolver.resolve()` | `publishStreams(info.streams)` + `publishVideoPid(info.videoPid)`,在 seek 对齐**之前**执行 |
+
+**判据日志**(本轮新增,常驻):
+
+- `echo-iso-stream-lang:<n>` —— 本次发布会话发布了多少条;坏会话**没有**这一行;
+- `echo-iso-lang:<pid>:<type>:<lang>` —— 每条轨建出时按 PID 查到的语言,`lang=-` 即表是空的(**诊断期临时加,同轮末尾按用户决定删除**:它是唯一随重建次数增长的日志,每次重建 25 行;判据改由 `echo-iso-stream-lang` 是否出现 + `subtitle-list` 名字覆盖);
+- `echo-setTrack subtitle-list: count/selected/names` —— 字幕列表的最终名字(音轨早有 `echo-setTrack list`,字幕一直没有);
+- `echo-iso-pgs-format:pid=…:lang=…` —— 原来只有一行无参数的 `echo-iso-pgs-format`,顺带补上 PID 与 PMT 描述符语言(实测恒为 `-`,BD 的 PG 语言只在 STN 里)。
+
+**验证**:新增 `IsoResolverTest.resolve_republishesStreamLanguagesOnCacheHit`(人为把带 streams 的 `IsoVolumeInfo` 塞进 `IsoVolumeCache`,再 `IsoPlaylistState.reset()`,断言 resolve 之后 `languageForPid` / `videoPid` 都回来了);ISO 包单测通过,门禁 PASS;`assembleDebug` 55,939,524B 已装 V2425A。
+
+**真机复验(23:37,同一张盘 10 分钟内第二次 prepare)**:
+
+```
+23:37:29.382  echo-goPlayUrl:…（重新播这张 ISO）
+23:37:29.391  echo-iso-prepare-rap:56106          ← 第二次 prepare ⇒ IsoPlaylistState.reset()
+23:37:29.971  echo-iso-stream-lang:count=25       ← 580ms 后语言表就重新发布了（卷缓存命中，无 udf/mpls/playlist 日志）
+23:37:29.972  echo-iso-seek-rap:56106:52764:00005.m2ts:210152640
+23:37:30.256  echo-iso-lang:pid=4352:type=1:lang=eng … 4361:zho   ← 10 条音轨全有语言
+23:37:30.262  echo-iso-lang:pid=4768:type=3:lang=eng … 4782:jpn   ← 15 条字幕全有语言，lang=- 0 条
+23:37:33.958  subtitle-list: 字幕1 - 英语 PGS … 字幕15 - 日语 PGS   ✅
+```
+
+对照修复前**同一条路径**(23:30:38.533 第二次 prepare → 23:30:39.411):25 条轨全是 `lang=-`,且没有 `echo-iso-stream-lang`;列表退化成 `字幕1 PGS …`。两边唯一差别就是这次修复。
+
+顺带记一个**踩坑**:第一次复验时用户"退出播放页再进同一集",日志出现 `echo-p3 take over same playback`(`sameOwned=true`)—— 页面直接接管旧播放,**不重建媒体源**,既不复现旧 bug 也不验证修复。要走到 `IsoVolumeCache` 那条路,必须真正触发第二次 `prepare()`(换线路、或播别的条目再回来)。

@@ -1,5 +1,7 @@
 package com.github.tvbox.osc.player.engine.iso
 
+import com.github.tvbox.osc.util.LOG
+
 object IsoPlaylistState {
 
     @Volatile
@@ -45,6 +47,7 @@ object IsoPlaylistState {
             if (!languages.containsKey(stream.pid)) languages[stream.pid] = language
         }
         streamLanguages = languages
+        LOG.i("echo-iso-stream-lang:count=${languages.size}")
     }
 
     internal fun languageForPid(pid: Int): String? = streamLanguages[pid]

@@ -18,6 +18,8 @@ internal data class IsoVolumeInfo(
     val totalLength: Long,
     val selection: IsoSelection,
     val locator: IsoLocator? = null,
+    val streams: List<IsoStream> = emptyList(),
+    val videoPid: Int? = null,
 )
 
 internal class IsoResolver(
@@ -42,6 +44,8 @@ internal class IsoResolver(
             logger("echo-iso-error:${e.message}")
             throw e
         }
+        IsoPlaylistState.publishStreams(info.streams)
+        IsoPlaylistState.publishVideoPid(info.videoPid)
         if (seekMs <= 0L) return info
         val aligned = info.locator?.locateSeek(info.selection, seekMs)
         if (aligned == null) {
@@ -64,7 +68,13 @@ internal class IsoResolver(
                 val selection = locator.locateSelection()
                 logger("echo-iso-cache-hit:${cached.directories.size}:${selection.segments.size}")
                 IsoPrepare.schedule(key, locator, selection, null)
-                return IsoVolumeInfo(totalLength, selection, locator)
+                return IsoVolumeInfo(
+                    totalLength,
+                    selection,
+                    locator,
+                    locator.selectedStreams,
+                    locator.selectedVideoPid,
+                )
             } catch (e: IsoFormatException) {
                 logger("echo-iso-cache-stale:${e.message}")
                 IsoDiskCache.evict(key)
@@ -82,7 +92,13 @@ internal class IsoResolver(
         logger("echo-iso-target:${target.name}:${target.m2tsOffset}:${target.m2tsLength}")
         val cached = buildSnapshot(volume)
         IsoPrepare.schedule(key, locator, selection, cached)
-        return IsoVolumeInfo(totalLength, selection, locator)
+        return IsoVolumeInfo(
+            totalLength,
+            selection,
+            locator,
+            locator.selectedStreams,
+            locator.selectedVideoPid,
+        )
     }
 
     private fun buildSnapshot(volume: UdfVolume): ByteArray? {

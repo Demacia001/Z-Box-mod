@@ -52,7 +52,7 @@ class BdTsPayloadReaderFactory(
                 EAC3_PROVISIONAL,
             )
             STREAM_TYPE_DTS -> if (hdmvDtsEnabled) dtsReader(streamType, esInfo) else null
-            STREAM_TYPE_DTS_HD, STREAM_TYPE_DTS_HD_MA -> dtsReader(streamType, esInfo)
+            STREAM_TYPE_DTS_HD, STREAM_TYPE_DTS_HD_MA -> dtsCoreReader(streamType, esInfo)
             STREAM_TYPE_PGS -> if (pgsEnabled()) wrap(PgsReader(esInfo.language)) else null
             else -> defaults.createPayloadReader(streamType, esInfo)
         }
@@ -68,6 +68,16 @@ class BdTsPayloadReaderFactory(
                 EXTSS_HEADER_SIZE_MAX,
                 MimeTypes.VIDEO_MP2T,
             ),
+            DTS_PROVISIONAL,
+        )
+    }
+
+    private fun dtsCoreReader(streamType: Int, esInfo: TsPayloadReader.EsInfo): TsPayloadReader {
+        if (dtsLogged.compareAndSet(false, true)) {
+            LOG.i("echo-iso-dts-hd:type=$streamType:lang=${esInfo.language}:core=1")
+        }
+        return wrap(
+            DtsCoreReader(esInfo.language, esInfo.roleFlags, MimeTypes.VIDEO_MP2T),
             DTS_PROVISIONAL,
         )
     }

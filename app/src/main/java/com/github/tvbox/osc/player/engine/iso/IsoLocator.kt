@@ -118,6 +118,12 @@ class IsoLocator(private val volume: IsoFileSource) {
 
     private val clipLocks = ConcurrentHashMap<String, Any>()
 
+    internal var selectedStreams: List<IsoStream> = emptyList()
+        private set
+
+    internal var selectedVideoPid: Int? = null
+        private set
+
     fun locate(): IsoPlayTarget = locateSelection().primary
 
     fun locateSelection(): IsoSelection {
@@ -156,8 +162,8 @@ class IsoLocator(private val volume: IsoFileSource) {
                         "duration=${chosen.durationMs}:unique=${uniqueDurationMs(chosen)}:" +
                         "total=${selection.totalLength}:first=${segments.first().name}",
                 )
-                IsoPlaylistState.publishStreams(chosen.streams)
-                IsoPlaylistState.publishVideoPid(chosen.videoPid)
+                selectedStreams = chosen.streams
+                selectedVideoPid = chosen.videoPid
                 if (chosen.streams.isNotEmpty()) {
                     LOG.i(
                         "echo-iso-streams:" + chosen.streams.joinToString(",") { "${it.pid}:${it.language}" },
@@ -166,7 +172,8 @@ class IsoLocator(private val volume: IsoFileSource) {
                 return selection
             }
         }
-        IsoPlaylistState.publishVideoPid(null)
+        selectedStreams = emptyList()
+        selectedVideoPid = null
         return IsoSelection(listOf(fallback), null, 0L)
     }
 

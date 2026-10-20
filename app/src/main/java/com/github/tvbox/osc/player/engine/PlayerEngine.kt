@@ -23,6 +23,7 @@ import androidx.media3.common.util.Clock
 import androidx.media3.common.util.Size
 import androidx.media3.exoplayer.DefaultLoadControl
 import androidx.media3.exoplayer.DefaultRenderersFactory
+import androidx.media3.exoplayer.ExoPlaybackException
 import androidx.media3.exoplayer.ExoPlayer
 import androidx.media3.exoplayer.Renderer
 import androidx.media3.exoplayer.analytics.AnalyticsListener
@@ -152,10 +153,20 @@ class PlayerEngine(
     @Volatile
     private var lastErrorKindValue = ERROR_KIND_UNKNOWN
 
+    @Volatile
+    private var lastErrorTrackKindValue = ERROR_TRACK_UNKNOWN
+
+    private var lastErrorFormatIdValue: String? = null
+
+    private var lastAudioFormatLogged: String? = null
+
     private var lastErrorCodeNameValue: String? = null
 
     @Volatile
     private var lastErrorExceedsDecodeCapabilityValue = false
+
+    @Volatile
+    private var lastErrorTenBitValue = false
 
     @Volatile
     private var droppedFramesTotal = 0L
@@ -185,6 +196,7 @@ class PlayerEngine(
         override fun onTracksChanged(tracks: Tracks) {
             trackSelection.loadDefaultSubtitleTrackBeforeReady()
             reportVideoSizeFromTracks(tracks)
+            reportAudioFormat(tracks)
         }
 
         override fun onPlaybackStateChanged(playbackState: Int) {
@@ -351,8 +363,12 @@ class PlayerEngine(
         videoEffectsOpen = false
         pictureHdrSource = false
         lastErrorKindValue = ERROR_KIND_UNKNOWN
+        lastErrorTrackKindValue = ERROR_TRACK_UNKNOWN
+        lastErrorFormatIdValue = null
+        lastAudioFormatLogged = null
         lastErrorCodeNameValue = null
         lastErrorExceedsDecodeCapabilityValue = false
+        lastErrorTenBitValue = false
     }
 
     private fun resetPlaybackStats() {
@@ -739,11 +755,20 @@ class PlayerEngine(
     val lastErrorKind: Int
         get() = lastErrorKindValue
 
+    val lastErrorTrackKind: Int
+        get() = lastErrorTrackKindValue
+
+    val lastErrorFormatId: String?
+        get() = lastErrorFormatIdValue
+
     val lastErrorCodeName: String?
         get() = lastErrorCodeNameValue
 
     val lastErrorExceedsDecodeCapability: Boolean
         get() = lastErrorExceedsDecodeCapabilityValue
+
+    val lastErrorTenBitFormat: Boolean
+        get() = lastErrorTenBitValue
 
     val droppedFrames: Long
         get() = droppedFramesTotal
@@ -932,11 +957,30 @@ class PlayerEngine(
         }
     }
 
+    private fun reportAudioFormat(tracks: Tracks) {
+        if (!isoSession) return
+        for (group in tracks.groups) {
+            if (group.type != C.TRACK_TYPE_AUDIO || !group.isSelected) continue
+            for (i in 0 until group.length) {
+                if (!group.isTrackSelected(i)) continue
+                val format = group.getTrackFormat(i)
+                val key = format.id + "|" + format.sampleMimeType
+                if (key == lastAudioFormatLogged) return
+                lastAudioFormatLogged = key
+                LOG.i("echo-iso-audio-format:${format.id}:${format.sampleMimeType}:ch=${format.channelCount}")
+                return
+            }
+        }
+    }
+
     private fun handlePlayerError(error: PlaybackException) {
         val codeName = error.errorCodeName
         lastErrorKindValue = classifyError(codeName)
+        lastErrorTrackKindValue = classifyTrackKind(error)
+        lastErrorFormatIdValue = (error as? ExoPlaybackException)?.rendererFormat?.id
         lastErrorCodeNameValue = codeName
         lastErrorExceedsDecodeCapabilityValue = exceedsDecodeCapability(codeName, error.message)
+        lastErrorTenBitValue = isTenBitFormat((error as? ExoPlaybackException)?.rendererFormat?.colorInfo)
         LOG.e("Tvbox-runtime", "echo-Exo player error: $currentPlayPath", error)
         val sb = StringBuilder("echo-exo-player-error: code=").append(codeName).append(", msg=").append(error.message)
         var cause = error.cause
@@ -1007,7 +1051,24 @@ class PlayerEngine(
         const val ERROR_KIND_UNKNOWN = 0
         const val ERROR_KIND_NETWORK = 1
         const val ERROR_KIND_DECODE = 2
+
+        const val ERROR_TRACK_UNKNOWN = 0
+        const val ERROR_TRACK_AUDIO = 1
+        const val ERROR_TRACK_VIDEO = 2
+
+        @JvmStatic
+        fun classifyTrackKind(error: PlaybackException): Int =
+            classifyTrackKind((error as? ExoPlaybackException)?.rendererFormat?.sampleMimeType)
+
+        @JvmStatic
+        fun classifyTrackKind(mimeType: String?): Int = when {
+            mimeType == null -> ERROR_TRACK_UNKNOWN
+            mimeType.startsWith("audio/") -> ERROR_TRACK_AUDIO
+            mimeType.startsWith("video/") -> ERROR_TRACK_VIDEO
+            else -> ERROR_TRACK_UNKNOWN
+        }
         const val ISO_SEEK_ZERO_TOLERANCE_MS = 1000L
+        const val TEN_BIT = 10
         const val ISO_SEEK_RAP_ENABLED = true
 
         @JvmStatic
@@ -1016,6 +1077,12 @@ class PlayerEngine(
             if (codeName.startsWith("ERROR_CODE_IO") || codeName.startsWith("ERROR_CODE_PARSING")) return ERROR_KIND_NETWORK
             if (codeName.startsWith("ERROR_CODE_DECOD")) return ERROR_KIND_DECODE
             return ERROR_KIND_UNKNOWN
+        }
+
+        @JvmStatic
+        fun isTenBitFormat(colorInfo: ColorInfo?): Boolean {
+            if (colorInfo == null) return false
+            return colorInfo.lumaBitdepth >= TEN_BIT || colorInfo.chromaBitdepth >= TEN_BIT
         }
 
         @JvmStatic

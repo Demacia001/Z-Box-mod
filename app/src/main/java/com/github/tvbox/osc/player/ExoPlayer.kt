@@ -356,9 +356,15 @@ class ExoPlayer(context: Context) : KernelPlayer() {
 
     fun lastErrorKind(): Int = engine?.lastErrorKind ?: ERROR_KIND_UNKNOWN
 
+    fun lastErrorTrackKind(): Int = engine?.lastErrorTrackKind ?: ERROR_TRACK_UNKNOWN
+
+    fun lastErrorFormatId(): String? = engine?.lastErrorFormatId
+
     fun lastErrorCodeName(): String? = engine?.lastErrorCodeName
 
     fun lastErrorExceedsDecodeCapability(): Boolean = engine?.lastErrorExceedsDecodeCapability ?: false
+
+    fun lastErrorTenBitFormat(): Boolean = engine?.lastErrorTenBitFormat ?: false
 
     private fun bufferTimes(): Int {
         val value = KV.get(HawkConfig.BUFFER_TIMES, HawkConfig.BUFFER_TIMES_DEFAULT)
@@ -375,6 +381,10 @@ class ExoPlayer(context: Context) : KernelPlayer() {
         const val ERROR_KIND_UNKNOWN = 0
         const val ERROR_KIND_NETWORK = 1
         const val ERROR_KIND_DECODE = 2
+
+        const val ERROR_TRACK_UNKNOWN = 0
+        const val ERROR_TRACK_AUDIO = 1
+        const val ERROR_TRACK_VIDEO = 2
 
         @JvmStatic
         fun setPreferSoftwareDecode(prefer: Boolean) {

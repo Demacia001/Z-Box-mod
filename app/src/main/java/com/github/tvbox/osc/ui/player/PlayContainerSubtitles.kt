@@ -199,6 +199,10 @@ internal class PlayContainerSubtitles(private val host: PlayContainer) {
         if (bean.size < 1) return
         val names = ArrayList<String>()
         for (item in bean) names.add(item.name ?: "")
+        LOG.i(
+            "echo-setTrack subtitle-list: count=" + bean.size +
+                " selected=" + trackInfo.getSubtitleSelected(false) + " names=" + names,
+        )
         host.mController.getUiState().selectDialog = SelectDialogState(
             host.context.getString(R.string.player_switch_internal_subtitle),
             names,

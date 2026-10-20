@@ -6,6 +6,9 @@ import java.io.File
 
 internal object IsoDiskCache {
 
+    @Volatile
+    private var legacyDropped = false
+
     fun load(key: String): IsoVolumeSnapshot? {
         val dir = directory() ?: return null
         return loadFrom(dir, key)
@@ -25,8 +28,20 @@ internal object IsoDiskCache {
     }
 
     fun clear() {
-        val dir = directory() ?: return
+        val context = AppContextHolder.context() ?: return
+        dropLegacy(context.cacheDir)
+        val dir = File(context.filesDir, DIRECTORY)
         runCatching { dir.listFiles()?.forEach { it.delete() } }
+    }
+
+    fun bytesOnDisk(): Long {
+        val context = AppContextHolder.context() ?: return 0
+        return bytesIn(File(context.filesDir, DIRECTORY))
+    }
+
+    internal fun bytesIn(dir: File): Long {
+        val files = dir.listFiles() ?: return 0
+        return files.filter { it.isFile && it.name.endsWith(SUFFIX) }.sumOf { it.length() }
     }
 
     internal fun loadFrom(dir: File, key: String): IsoVolumeSnapshot? {
@@ -83,9 +98,24 @@ internal object IsoDiskCache {
 
     private fun directory(): File? {
         val context = AppContextHolder.context() ?: return null
-        val dir = File(context.cacheDir, DIRECTORY)
+        val dir = File(context.filesDir, DIRECTORY)
         if (!dir.isDirectory && !dir.mkdirs()) return null
+        dropLegacy(context.cacheDir)
         return dir
+    }
+
+    internal fun dropLegacyInto(cacheDir: File): Int {
+        val legacy = File(cacheDir, DIRECTORY)
+        if (!legacy.exists()) return 0
+        val removed = legacy.listFiles()?.size ?: 0
+        return if (runCatching { legacy.deleteRecursively() }.getOrDefault(false)) removed else 0
+    }
+
+    private fun dropLegacy(cacheDir: File) {
+        if (legacyDropped) return
+        legacyDropped = true
+        val removed = dropLegacyInto(cacheDir)
+        if (removed > 0) LOG.i("echo-iso-cache-legacy-drop:$removed")
     }
 
     private fun nameOf(key: String): String =

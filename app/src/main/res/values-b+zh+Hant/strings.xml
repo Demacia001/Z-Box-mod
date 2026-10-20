@@ -57,6 +57,7 @@
     <string name="player_error_sniff">嗅探錯誤</string>
     <string name="player_error_play">影片播放發生錯誤</string>
     <string name="player_decode_exceeds_capability">超出核心解碼能力上限</string>
+    <string name="player_decode_10bit_tip">此線路為 10-bit 編碼，裝置不支援</string>
     <string name="player_no_audio_track">沒有音軌</string>
     <string name="player_switch_audio_track">切換音軌</string>
     <string name="player_no_video_track">沒有視訊軌</string>
@@ -530,6 +531,7 @@
     <string name="player_iso_bandwidth_low">網盤限速，頻寬不足</string>
     <string name="player_play_error_retry">播放出錯，自動重試</string>
     <string name="player_decode_fallback_tip">硬解失敗，已切換軟解重試</string>
+    <string name="player_audio_track_fallback_tip">音軌無法解碼，自動切換</string>
     <string name="player_call_external_play">推送到%1$s進行播放</string>
     <string name="player_call_external_result">推送到%1$s%2$s</string>
 

@@ -385,6 +385,16 @@ class PlaybackController {
         return false
     }
 
+    fun isLastErrorTenBitFormat(): Boolean {
+        try {
+            val live = view?.mediaPlayer()
+            if (live is ExoPlayer) return live.lastErrorTenBitFormat()
+        } catch (ignored: Throwable) {
+            LOG.d("PlaybackController", "exo bit depth probe failed")
+        }
+        return false
+    }
+
     fun setCastPrepareOnly(prepareOnly: Boolean) {
         st.castPrepareOnly = prepareOnly
     }

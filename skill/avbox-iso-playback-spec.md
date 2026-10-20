@@ -80,12 +80,13 @@ MediaSources.createIsoMediaSource(uri, headers, seekMs)
 | `PrimaryVideoExtractor.kt` | 主视频 PID 过滤 + **延迟声明门** | 见 §4-C1..C3 |
 | `LpcmReader.kt` | LPCM 4B 头解析、声道重排、24→16bit | 样本必带 `BUFFER_FLAG_KEY_FRAME` |
 | `Ac3CoreReader.kt` | `0x83` TrueHD 只取 PES 起始的 AC-3 core | 不能直连 `Ac3Reader`(假同步会崩) |
+| `DtsCoreReader.kt` | `0x85`/`0x86` 只取 DTS core 帧,丢掉 EXTSS | mime 永远是 `audio/vnd.dts`;见 §9-11 |
 | `PgsReader.kt` | PGS 按 END 拼完整 display set 再产 sample | `createTracks` 立刻发 Format |
 | `LanguageOverrideReader.kt` | 按 PID 覆盖语言 | 语言来源是 STN |
-| `IsoPlaylistState.kt` | 跨阶段共享:mpls 选中结果 / 片段表 / 主视频 PID / 语言 | `reset()` 必须覆盖全部字段 |
+| `IsoPlaylistState.kt` | 跨阶段共享:mpls 选中结果 / 片段表 / 主视频 PID / 语言 | `reset()` 必须覆盖全部字段;**语言表由 `IsoResolver.resolve()` 每次重发**,别只在 locate 里发(§8-D11) |
 | `IsoSeekRebuild.kt` | seek 落点重建 MediaSource / RAP 起播判定 | 纯判定 `IsoSeekAction`,带单测(`IsoSeekRapTest`/`IsoSeekRebuildTest`) |
 | `IsoThroughput.kt` / `IsoBandwidthGuard.kt` | 4s 窗口吞吐 / 带宽判定 | 见 §1 |
-| `IsoDiskCache.kt` | 目录快照与 clpi 缓存 | 版本号参与 key |
+| `IsoDiskCache.kt` | 目录快照落盘(`filesDir/iso-volume`) | key=总长+前4KB指纹;版本号参与 key;见 §8-D9 |
 | `ClpiIndex.kt` | `*.clpi` RAP 索引 | seek/RAP 起播用 |
 | `IsoPrepare.kt` | 后台预取 clpi(6s 延迟) | 不阻塞起播 |
 | `BdavDataSource.kt` | 裸 192B BDAV 探测 + 复用 `M2tsStream` | stub <1MB 快速失败 |
@@ -149,6 +150,9 @@ DV 双层盘的 PMT 同时有主层(3840×2160)和增强层(1920×1088),`Primary
 **C12 — 新增日志前缀必须进 `LOG.FILE_LOG_PREFIXES`。**
 现有 `echo-iso` 前缀已覆盖全部 ISO 日志(`LOG.kt:20`)。代码**零注释**;说明写进本文或档案。
 
+**C13 — 解码失败必须分清是音频轨还是视频轨。**
+`ERROR_CODE_DECOD…` 只说明"某个渲染器解码失败",不含轨类型。把它一律当"视频硬解失败"会:①弹错误的提示(`player_decode_fallback_tip`);②把**视频**切成软解(4K 反而更糟);③掩盖真正问题(2026-10-20 的实例是**音频** `FfmpegAudioRenderer` 解不了 `audio/vnd.dts.hd`)。判据:失败音频轨→只换音轨(`echo-autoRetry audio track fallback:<pid>` + `echo-iso-audio-skip:<pid>`),视频解码设置一个字节都不动。
+
 ## 5. 已知坑与判据
 
 > 每条:现象 → 根因 → 判据。完整解剖见档案对应节。
@@ -170,6 +174,7 @@ DV 双层盘的 PMT 同时有主层(3840×2160)和增强层(1920×1088),`Primary
 | 13 | 打开就报 `volume recognition missing` | 混合盘 VRS 不在 sector 16(C10) | 无 `echo-iso-udf-vrs` | §14.12 |
 | 14 | 黑屏无声、进度条正常 | 诱饵指向 MPEG-2 菜单素材,设备无 MPEG-2 解码器,media3 不报错 | `echo-exo-selector: mime=video/mpeg2 count=0` | 档案 §4.6 |
 | 15 | 4K 盘 `NO_EXCEEDS_CAPABILITIES` | 模拟器只到 ProfileMain,不是误报 | `echo-exo-codec-init: kind=SOFTWARE` + Format 尺寸 | §14.8 |
+| 16 | 弹「硬解失败,已切换软解」但视频明明是硬解 | 音频轨解码失败被当成视频硬解失败(C13) | `echo-exo-player-error` 的 `msg=FfmpegAudioRenderer error` + `format=…audio/vnd.dts.hd` | §13.7 |
 
 ## 6. 运维:拉日志 / 复现
 
@@ -198,11 +203,17 @@ ADB="/c/Users/Administrator/AppData/Local/Android/Sdk/platform-tools/adb.exe"
 | `echo-iso-play: format=...` / `echo-iso-play-skip-cache` | 命中 ISO 分流 / 跳过磁盘缓存 |
 | `echo-iso-udf-vrs:NSR02\|NSR03` → `echo-iso-udf-avdp/lvd/fsd` → `echo-iso-udf-ok` | UDF 各阶段;`NSR02` = UDF 1.02(混合盘常态,不是异常) |
 | `echo-iso-cache-hit` / `-decode-fail` / `-build` | 目录快照;改过解析器必须出现 `decode-fail` |
+| `echo-iso-cache-legacy-drop:<n>` | 首次访问时删掉旧位置 `cacheDir/iso-volume` 的 n 个 `.snap`(迁移,只出现一次) |
+| `echo-iso-cache-stale` / `-oversize` / `-save` | 快照与盘对不上被弃用 / 超 1MB / 后台落盘字节数 |
+| `echo-iso-audio-format:<id>:<mime>:ch=` | 实际选中并送解码的音轨格式(每条变更一次),音频类问题先看它 |
+| `echo-iso-audio-skip:<pid>` | 该音轨被拉黑后不再声明(`IsoAudioFallback`,音频解码失败后自动切换的落地) |
 | `echo-iso-m2ts:count/…:chosen` | 盘内 m2ts 与选中项(多段盘判据) |
 | `echo-iso-mpls:…:chosen=…:duration=…:unique=…:top=…` | 播放列表盘点;`duration != unique` = 重复段 |
 | `echo-iso-playlist:…:segments/unique/total` / `-append` | 选片结果与跨段追加 |
 | `echo-iso-streams:<pid>:<lang>,…` | STN 读到的语言表 |
-| `echo-iso-pgs-format` / `echo-iso-pgs:first=` | PGS 轨注册(必须)/ 首条 display set |
+| `echo-iso-stream-lang:<n>` | 本次会话发布的 `pid→语言` 条数。`IsoResolver.resolve()` 每次都会打(含命中 `IsoVolumeCache`);**坏会话里它缺失** = 语言表没重建 |
+| `echo-setTrack subtitle-list: count/selected/names` | 内置字幕列表的最终名字(语言类问题先看它,与音轨的 `echo-setTrack list` 对齐) |
+| `echo-iso-pgs-format:pid=…:lang=…` / `echo-iso-pgs:first=` | PGS 轨注册(必须)/ 首条 display set;`lang=-` = PMT 没带语言描述符(BD 常态,靠 STN 覆盖) |
 | `echo-iso-truehd-core` / `echo-iso-lpcm-format` / `echo-iso-dts-hd` | 三条自定义音频链路就绪 |
 | `echo-iso-track-defer:declared=N` | 扣住 `endTracks()`,N 条轨等 Format(正常盘随后自动放行) |
 | `echo-iso-track-drop:<pid>:<type>` / `-late` / `-end:` | 1.5s 仍无格式无数据被丢 / 丢弃后才来格式 / 汇总。**`drop` 表示该盘有"不说话"的轨** |
@@ -221,7 +232,7 @@ ADB="/c/Users/Administrator/AppData/Local/Android/Sdk/platform-tools/adb.exe"
 1. **单段 ISO**:`udf-vrs` → `m2ts` → `mpls`(`duration == unique`)→ `playlist` → `pgs-format` → `track-defer` → `echo-exo-selector` → `codec-init` → `bps` → 进度 1s/s 推进,无 `echo-iso-error`。
 2. **多段 ISO**:`playlist:segments=N` 且 `playlist-append` 出现;跨段无黑屏、无 `codec-init` 重建(档案 §12.9)。
 3. **音轨**:菜单条数 = STN 音轨数;主音轨出声(`AT::add`,48kHz/5.1 之类);无 `track-drop` + `track-late` 组合。
-4. **字幕**:三条 PGS 都能切、轨名显示 `PGS`(不是 `APPLICATION/PGS`)、位图不被拉伸。
+4. **字幕**:三条 PGS 都能切、轨名带语言(`英语`/`国语`/…)且显示 `PGS`(不是 `APPLICATION/PGS`)、位图不被拉伸;再**退出播放页、10 分钟内重新进同一集**(命中 `IsoVolumeCache` 与磁盘快照两种路径各一次),轨名语言必须仍在 —— 见 §8-D11。**这条比"能不能播"更容易回归**。
 5. **4K 单层**:送解码的 Format 是 3840×2160;失败必须是 `NO_EXCEEDS_CAPABILITIES`(设备边界),不能是"零视频轨"。
 6. **4K 双层 DV**:`video-skip` 出现且只出现一次,解码对象是主层。
 7. **诱饵盘**:`chosen` 是正片,`duration == unique`;诱饵仍在 `top=` 里但排后面。
@@ -243,6 +254,10 @@ ADB="/c/Users/Administrator/AppData/Local/Android/Sdk/platform-tools/adb.exe"
 | D6 | 音轨"晚到"用**临时 Format**,不用时间窗丢轨 | 时间窗会误伤真实主音轨(档案 §14.13 的 bug B) |
 | D7 | 延迟声明门保留,但只作保险 | 有临时 Format 后它基本不参与;留着兜住"既无格式又无数据且未覆盖的类型" |
 | D8 | 多段盘用 `ConcatenatingMediaSource` 逐段追加 | 段首必带参数集,跨段解码器复用;代价是 seek 更容易触发重建 |
+| D9 | 目录快照存 `filesDir/iso-volume`,不存 `cacheDir` | 快照的价值是省掉 1.6–2.6s 的 UDF 往返(codec-init 5.29s→2.20s),而 `cacheDir` 会被**系统**清掉(低存储回收、系统设置/应用信息里的"清除缓存"),这些用户控制不了,越是爱清缓存的人越吃亏。**应用内的「清除缓存」仍然清它** —— `SettingsViewModel.clearCache()` 显式调 `IsoDiskCache.clear()`,并把 `bytesOnDisk()` 加进显示的大小(≤8MB),按钮语义与数字都保持诚实。代价:`filesDir` 不受系统代管,淘汰只能靠自己 —— 沿用 `MAX_FILES = 8` / `MAX_BYTES = 1MB` / `lastModified`,总量 ≤8MB;旧位置的 `cacheDir/iso-volume` 在首次访问(或首次清缓存)时整目录删除并打 `echo-iso-cache-legacy-drop`(避免"目录里还有旧快照"干扰取证) |
+| D10 | 音频解码失败只换音轨,不碰解码方式 | 见 C13。落地:`IsoAudioFallback` 按内容(VOD URL)记一条被拉黑的 PID,重建 MediaSource 时 `PrimaryVideoExtractor` 不再声明它(`echo-iso-audio-skip`),selector 自然落到下一条;提示用 `player_audio_track_fallback_tip`「音轨无法解码,自动切换」。**不做**自动切软解(4K 上只会更糟),也不改 `exo` 解码设置;音频分支在 `autoRetry` 里直接 return,不再往"切内核/换线路"继续走。同 URL 再次播放时拉黑仍然生效 —— 这是有意的:解码器的能力不会因为重播而改变 |
+
+| D11 | `pid→语言`表随 `IsoVolumeInfo` 走,`IsoResolver.resolve()` **每次**都重新发布(含命中原生卷缓存) | 语言表是会话态(`MediaSources.createIsoMediaSource` 每次 `IsoPlaylistState.reset()`),而原先只在 `IsoLocator.locateSelection()` 里 `publishStreams()`;`IsoVolumeCache`(进程内 LRU 4 条 / TTL 10 分钟)命中时**根本不跑 locate** ⇒ 表被清空却没重建,所有轨(音+字)失去语言,字幕菜单退化成"字幕1/2/3…"。代价:`IsoVolumeInfo` 多两个字段 + 每次 resolve 一次 O(n≤30) 映射重建 |
 
 ## 9. 未决清单
 
@@ -257,6 +272,10 @@ ADB="/c/Users/Administrator/AppData/Local/Android/Sdk/platform-tools/adb.exe"
 | 7 | 4K 多段盘、PGS 跨段延续、分钟级跨段 | **未覆盖** |
 | 8 | 稳态吞吐长跑(2–3 分钟连续) | **未测**;现有 5.9–11.8MB/s 都是折算值 |
 | 9 | ~~seek 的两个疑点:`TsBinarySearchSeeker` 为何一次二分都没跑;落点开始读时视频轨为何拿不到 Format~~ | **已结(2026-10-20 真机复验,档案 §11.10)**。①"二分没跑"不是缺陷:重建路径按 CLPI 访问点算出**精确字节偏移**、直接开新 period,**本来就不该跑二分**;段内 seek 才是 media3 容器 seek(真机 `echo-iso-seek:807646097:4467110511`,一次跳 807MB,无二次 `codec-init`)。②"落点拿不到 Format"的前提不成立:访问点**自带参数集**(档案 §11.9.2 逐字节解开 `AUD/SPS/PPS/SEI`,每个访问点重发),真机 RAP 起播 `codec-init: name=c2.qti.avc.decoder kind=HARDWARE` 出画有声有字。真正留下的是教训:模拟器假解码器给的 4 次判负全部作废(档案 §11.10) |
+| 10 | 快照键的识别力:`isoFingerprint` = 总长 + **前 4KB 的 SHA-256**,而 BD 盘前 4KB 常是全零 ⇒ 键实际只剩总长 | **已知风险,未修**。真机证据:两台盘(`103,527,874,560` / `47,073,787,904`)的快照指纹**完全相同**,且等于 `sha256(4096 字节 0)` ⇒ 前 4KB 对 BD 不携带任何身份信息,VRS 在 sector 16(字节 32,768)。**同总长、不同内容的两张盘会互撞**,后果是"按另一张盘的选片表播",暴露点是 m2ts 短读/异常而**不一定**有 `echo-iso-cache-stale`。修法(未评估定案):①probe 改读带盘标识的区间(仍需确认哪一段带 LVD 卷标识,AVDP 在 sector 256);②快照内记 LVD 卷标识,命中后校验 —— 要多读一次锚点(约 0.3–0.8s),会吃掉 3.09s 收益的一部分 |
+| 11 | `audio/vnd.dts.hd` 送 ffmpeg 时解码失败(DTS-HD MA 的扩展子流) | **已结(2026-10-20 23:22 真机验证)**。机制已锁定(2026-10-20 23:11):同一条轨**起读时是 `audio/vnd.dts`(core),几十毫秒后 `DtsReader` 遇到 EXTSS 帧重新发一条 `audio/vnd.dts.hd`**,ffmpeg 当场 `FfmpegDecoderException`;所以复现与否取决于"何时遇到扩展子流"。修法:`0x85/0x86` 不再用 media3 的 `DtsReader`,改用 `DtsCoreReader` —— 只认 core 帧、按 `DtsUtil.getDtsFrameSize` 截断、跳过 EXTSS,Format 恒为 `audio/vnd.dts`(`echo-iso-dts-hd:…:core=1` + `echo-iso-dts-core:ch=…:rate=…`)。C13/D10 的换音轨回退保留作兜底。真机复验:同一续播点 684,637ms 重放,`echo-iso-dts-core:ch=6:rate=48000` → `echo-iso-audio-format:…audio/vnd.dts` → `PLAYING hasAudio=true`,全程无 `player-error` / 无换轨 |
+
+| 12 | 字幕菜单全是"字幕1/2/3…"、没有中英文;音频那边也丢语言 | **已结(2026-10-20 23:37 真机复验)**。根因(2026-10-20 真机日志锁定):`IsoVolumeCache` 命中时跳过 `locateSelection()`,于是 `publishStreams()` 不执行,而 `reset()` 已经把表清空。所以是**首次冷进正常、退出重进 / 10 分钟内重播必坏**,不是概率问题。判据:坏会话**没有** `echo-iso-stream-lang`,且 `subtitle-list` 的名字退回 `字幕N PGS`(临时加的 per-track `echo-iso-lang` 已于同轮移除,见 §11 末行)。修法见 `§8-D11`;回归用例 `IsoResolverTest.resolve_republishesStreamLanguagesOnCacheHit`。**复验**:同一张盘第二次 prepare(23:37:29.391,`IsoVolumeCache` 命中,580ms 内出表)→ `echo-iso-stream-lang:count=25` → 25 条轨全部 `lang=eng/deu/spa/fra/zho/nor/por/fin/swe/jpn`,`lang=-` **0 条**;字幕列表恢复 `字幕1 - 英语 PGS … 字幕15 - 日语 PGS`。对照修复前同一路径(23:30:39)25 条轨全是 `lang=-` |
 
 ## 10. 档案索引
 
@@ -282,3 +301,9 @@ ADB="/c/Users/Administrator/AppData/Local/Android/Sdk/platform-tools/adb.exe"
 | 2026-10-20 | 盘 J 的"4 秒卡死"修复:`PrimaryVideoExtractor` 延迟声明门 + 有数据即落地 + 按 stream type 的临时 Format(`ProvisionalFormatReader`);新增 `§4-C1..C3` 与 `§5` 的 #1–#3 |
 | 2026-10-20 | 诊断日志复核:确认无 per-sample 日志、落盘仅 debug;顺带修掉 `echo-progress-tick` 暴露的**进度回调自旋**(纯判定 `ProgressTickDelay`,下限 200ms)与 debug 日志**8MB 轮转**(`LOG.shouldRotateLog`);全量 **1287 通过 / 0 失败 / 3 跳过** |
 | 2026-10-20 | §9 对账(只改文档,不动代码):seek 两个疑点按真机复验(档案 §11.10)结案并删除;`#5`/`#6` 补 as-built 现状 —— 「有数据即落地」已覆盖大部分丢轨场景(缺的只是按载荷而非时长判死)、临时 Format 仍硬编码 `48k/6ch/2ch` 且 STN 只解 `pid+language`,避免被读成"完全空白" |
+| 2026-10-20 | **修复"字幕菜单只有 字幕1/2/3、没有语言"**:`pid→语言`表原先只在 `IsoLocator.locateSelection()` 发布,而 `IsoVolumeCache`(进程内 LRU,TTL 10 分钟)命中时跳过 locate ⇒ `reset()` 清空后不重建,音/字轨全部失去语言。改为把语言表挂进 `IsoVolumeInfo`,在 `IsoResolver.resolve()` 里每次(含缓存命中)重新发布(`§8-D11`、`§9-12`);新增 `echo-iso-stream-lang` / `echo-setTrack subtitle-list` 两条判据日志(`echo-iso-pgs-format` 原有行补 `pid/lang`)与 `IsoResolverTest` 回归用例;全量 **1318 通过 / 0 失败 / 3 跳过**。**真机复验(23:37)**:同一张盘 10 分钟内第二次 prepare 命中 `IsoVolumeCache` 后 `echo-iso-stream-lang:count=25` 照常发布,25 条轨语言齐全,字幕列表 `字幕1 - 英语 … 字幕15 - 日语` |
+| 2026-10-20 | **收掉临时诊断日志**:诊断期加的 per-track `echo-iso-lang:<pid>:<type>:<lang>`(每次重建 25 行)按用户决定删除 —— 判据由 `echo-iso-stream-lang`(有没有发布)+ `echo-setTrack subtitle-list`(最终名字)覆盖;`LOG.i` 的写盘本就在单线程 executor 上异步、且 release 不落盘,但这行是全轮唯一随重建次数增长的日志,删掉后常驻零新增噪声 |
+| 2026-10-20 | **目录快照迁到 `filesDir/iso-volume`**(原 `cacheDir` 会被系统低存储回收、系统设置/应用信息里的"清除缓存"清掉 = 白丢 3.09s 起播收益)。策略见 `§8-D9`:**应用内「清除缓存」改为显式清它**(`SettingsViewModel.clearCache()` → `IsoDiskCache.clear()`)并把 ≤8MB 计入显示的大小(`bytesOnDisk()`);旧位置首次访问整目录删除(`echo-iso-cache-legacy-drop`)。顺带修正 §3 对该文件的错误描述(它不碰 clpi),并把"前 4KB 实测全零 ⇒ 键只剩总长"记入 `§9-10`;全量 **1302 通过 / 0 失败 / 3 跳过** |
+| 2026-10-20 | **音频解码失败不再冒充"硬解失败"**(`§4-C13`、`§8-D10`、`§5` #16):`PlayerEngine` 记录失败轨类型(`classifyTrackKind`),音频失败只换音轨 —— 新增 `IsoAudioFallback`(按内容拉黑 PID)+ `PrimaryVideoExtractor` 的 `suppressedAudio` 出口 + `echo-iso-audio-format` / `echo-iso-audio-skip` 两条日志 + 文案 `player_audio_track_fallback_tip`;`audio/vnd.dts.hd` 本身仍解不了,记入 `§9-11`;全量 **1313 通过 / 0 失败 / 3 跳过** |
+| 2026-10-20 | 真机复现确认为**轨中途升级**成 `dts.hd`(不是续播落点);按 A 方案落地 `DtsCoreReader`:`0x85/0x86` 只送 DTS core、跳过 EXTSS,mime 恒 `audio/vnd.dts`(`§9-11` 转"待真机验证");新增 `DtsCoreReaderTest` 4 例;全量 **1317 通过 / 0 失败 / 3 跳过**
+| 2026-10-20 | `DtsCoreReader` **真机复验通过**(23:22,同一续播点):`dts-hd:…:core=1` → `dts-core:ch=6:rate=48000` → `audio/vnd.dts` 全程稳定,`PLAYING hasAudio=true`,无 `player-error` / 无换轨;`§9-11` 结案 ||

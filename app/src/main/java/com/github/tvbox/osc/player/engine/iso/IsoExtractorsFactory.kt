@@ -12,14 +12,14 @@ class IsoExtractorsFactory(
     private val readerFactory: TsPayloadReader.Factory = DEFAULT_READER_FACTORY,
 ) : ExtractorsFactory {
 
-    override fun createExtractors(): Array<Extractor> = arrayOf(newExtractor())
+    override fun createExtractors(): Array<Extractor> = arrayOf(newExtractor(null))
 
     override fun createExtractors(
         uri: Uri,
         responseHeaders: Map<String, List<String>>,
-    ): Array<Extractor> = arrayOf(newExtractor())
+    ): Array<Extractor> = arrayOf(newExtractor(uri.toString()))
 
-    private fun newExtractor(): Extractor = PrimaryVideoExtractor(
+    private fun newExtractor(contentKey: String?): Extractor = PrimaryVideoExtractor(
         TsExtractor(
             TsExtractor.MODE_MULTI_PMT,
             0,
@@ -29,6 +29,7 @@ class IsoExtractorsFactory(
             TIMESTAMP_SEARCH_BYTES,
         ),
         { IsoPlaylistState.videoPid() },
+        suppressedAudio = { pid -> IsoAudioFallback.suppressed(contentKey, pid) },
     )
 
     private companion object {

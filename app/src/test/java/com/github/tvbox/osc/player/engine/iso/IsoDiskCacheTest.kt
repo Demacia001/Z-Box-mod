@@ -69,6 +69,42 @@ class IsoDiskCacheTest {
         assertTrue("files=${dir.list()?.toList()}", dir.listFiles()?.none { it.name.endsWith(".tmp") } == true)
     }
 
+    @Test
+    fun dropLegacy_removesOldCacheDirectory() {
+        val cacheDir = Files.createTempDirectory("iso-legacy-cache").toFile()
+        try {
+            val legacy = File(cacheDir, "iso-volume")
+            assertTrue(legacy.mkdirs())
+            File(legacy, "a.snap").writeBytes(byteArrayOf(1))
+            File(legacy, "b.snap").writeBytes(byteArrayOf(2))
+
+            assertEquals(2, IsoDiskCache.dropLegacyInto(cacheDir))
+            assertTrue(!legacy.exists())
+        } finally {
+            cacheDir.deleteRecursively()
+        }
+    }
+
+    @Test
+    fun dropLegacy_absentDirectory_returnsZero() {
+        assertEquals(0, IsoDiskCache.dropLegacyInto(dir))
+    }
+
+    @Test
+    fun bytesIn_countsSnapshotsOnly() {
+        IsoDiskCache.saveTo(dir, KEY, sampleSnapshot())
+        File(dir, "stale.tmp").writeBytes(ByteArray(100))
+        val expected = requireNotNull(dir.listFiles()).filter { it.name.endsWith(".snap") }.sumOf { it.length() }
+
+        assertEquals(expected, IsoDiskCache.bytesIn(dir))
+        assertTrue("expected=$expected", expected > 0L)
+    }
+
+    @Test
+    fun bytesIn_missingDirectory_returnsZero() {
+        assertEquals(0L, IsoDiskCache.bytesIn(File(dir, "absent")))
+    }
+
     private fun sampleSnapshot(): IsoVolumeSnapshot {
         val volume = UdfVolume.open(UdfImageBuilder(useMetadataPartition = true).reader(), IMAGE_SIZE)
         return requireNotNull(volume.snapshot())

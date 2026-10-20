@@ -269,12 +269,53 @@ class PrimaryVideoExtractorTest {
         assertTrue(fixture.delegate.releaseCalled)
     }
 
-    private class Fixture(private val primaryPid: Int? = PRIMARY_PID) {
+    @Test
+    fun suppressesBlacklistedAudioTrackOnly() {
+        val fixture = Fixture(suppressedAudio = setOf(AUDIO_PID))
+        fixture.declare(PRIMARY_PID, C.TRACK_TYPE_VIDEO).format(VIDEO_FORMAT)
+        fixture.declare(AUDIO_PID, C.TRACK_TYPE_AUDIO).format(AUDIO_FORMAT)
+        fixture.declare(PHANTOM_PID, C.TRACK_TYPE_AUDIO).format(AUDIO_FORMAT)
+        fixture.endTracks()
+        fixture.read()
+
+        assertEquals(
+            listOf(PRIMARY_PID to C.TRACK_TYPE_VIDEO, PHANTOM_PID to C.TRACK_TYPE_AUDIO),
+            fixture.output.tracks,
+        )
+    }
+
+    @Test
+    fun suppressionIgnoresVideoTracks() {
+        val fixture = Fixture(suppressedAudio = setOf(PRIMARY_PID))
+        fixture.declare(PRIMARY_PID, C.TRACK_TYPE_VIDEO).format(VIDEO_FORMAT)
+        fixture.endTracks()
+        fixture.read()
+
+        assertEquals(listOf(PRIMARY_PID to C.TRACK_TYPE_VIDEO), fixture.output.tracks)
+    }
+
+    @Test
+    fun suppressedAudioDataIsDiscarded() {
+        val fixture = Fixture(suppressedAudio = setOf(AUDIO_PID))
+        val audio = fixture.declare(AUDIO_PID, C.TRACK_TYPE_AUDIO)
+        audio.format(AUDIO_FORMAT)
+        audio.sampleMetadata(0L, 0, 64, 0, null)
+        fixture.endTracks()
+        fixture.read()
+
+        assertTrue(fixture.output.tracks.isEmpty())
+        assertTrue(fixture.output.endTracksCalled)
+    }
+
+    private class Fixture(
+        private val primaryPid: Int? = PRIMARY_PID,
+        private val suppressedAudio: Set<Int> = emptySet(),
+    ) {
 
         val clock = FakeClock()
         val delegate = FakeExtractor()
         val output = RecordingOutput()
-        val extractor = PrimaryVideoExtractor(delegate, { primaryPid }, clock::elapsed)
+        val extractor = PrimaryVideoExtractor(delegate, { primaryPid }, clock::elapsed, { it in suppressedAudio })
 
         init {
             extractor.init(output)
