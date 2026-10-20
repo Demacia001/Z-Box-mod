@@ -8,7 +8,7 @@ import androidx.media3.common.util.Size
 import androidx.media3.effect.BaseGlShaderProgram
 
 internal abstract class VideoAdjustShaderProgram(useHdr: Boolean, fragmentShader: String) :
-    BaseGlShaderProgram(false, 1) {
+    BaseGlShaderProgram(useHdr, 1) {
 
     protected val glProgram: GlProgram
 

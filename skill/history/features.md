@@ -5869,3 +5869,92 @@ echo-exo-selector: mime=video/avc preferSoft=false count=3 first=c2.qti.avc.deco
 **落地（3 文件 + 2 新资源）**：①`DetailHero.kt` 的 `HeroCircleButtonSize` 40→50dp（间距 24dp / 图标 24dp 不动；`DetailActionRow` 竖屏 playing 态那份共用同一常量，自动同步）；②`.tubiao/演员阵容.svg` → `drawable/ic_detail_actors.xml`、`.tubiao/分类.svg` → `drawable/ic_detail_genres.xml`（既有转换范式：viewport 960 + `translateY 960` 抵消 `viewBox="0 -960 960 960"`、pathData 照抄、fillColor `#FF1F1F1F`）；③`DetailTmdbSections.kt` 的 `TmdbCastBlock` / `TmdbGenreSection` 标题行由裸 `Text` 改为 `Row + SectionTitleIcon(22dp) + Text(start 8dp)`，与详情页其余分区标题行同款，两处 bottom padding 保持 8dp。
 
 **验证**：`:app:assembleDebug` 绿（UI 改动仅构建）；装 MuMu。**走查判据**：①详情页 Hero 下三圆钮直径 50dp（间距 24dp 不变）；②「演员阵容」「分类」标题左侧出现 22dp 画稿图标、文字间距 8dp；③playing 态内容首项那份 `DetailActionRow` 圆钮同为 50dp。
+
+## 外置私有目录补 .nomedia 标记（2026-10-20，用户要求）
+
+**背景**：用户问「数据私有目录是不是没有 .nomedia」。核查：全仓（含隐藏文件、build 产物、`git log --all -S nomedia`、`.gitignore`）**没有任何 `.nomedia`**，代码里也没有创建逻辑。目录实况：内部 `filesDir`/`cacheDir` 不在 MediaStore 扫描域；外置 `Android/data/com.github.avbox.osc/files` 只放 `config/` 副本与配置里的 `./` 引用（引用不限扩展名，见 `LocalConfigHelper.copyRefs`），`cache/` 只放 `qjscache_*.js` 与 `exo-video-cache`。现代 Android 的 MediaStore 通常不把 `Android/data`/`Android/obb` 当媒体目录扫描，但 `minSdk = 24`（Android 7+）覆盖的低版本与个别 ROM 口径不一，且配置副本理论上会落 `.png`/`.jpg` 引用 ⇒ 采纳「低成本防御」：补一个外置 `files/.nomedia`。
+
+**落地（2 文件 + 1 测试）**：
+
+- `FileUtils.ensureNoMediaMarker()`：直接取 `getExternalFilesDir(null)`（**不走** `getExternalFilesPath()` 的 `filesDir` 回落，避免在内部目录写无意义标记），null 直接返回；`createNoMediaMarkerIfAbsent(dir: File)` 幂等创建 `dir/.nomedia`（返回本次是否新建），目录缺失先 `mkdirs`；`mkdirs`/`createNewFile` 失败与异常都落 `LOG.e`、不中断启动。
+- 调用点：`App.onCreate` 现有 `exo-cache-boot` 后台线程首行（`App.kt:87`）——避开主线程 `echo-boot` 耗时埋点与 debug StrictMode 磁盘写检测；**不放** `cache/`（系统清缓存会删标记），**不只放** `files/config/`（只覆盖一层）。
+- 取证：新建时打 `echo-storage nomedia path=…`（`LOG.FILE_LOG_PREFIXES` 已含 `echo-storage`，debug 包落 `files/preload_debug.log`），真机可 `adb shell run-as com.github.avbox.osc cat files/preload_debug.log` 查。
+- 单测 `FileUtilsNoMediaMarkerTest`（3 例）：已存在目录创建、缺失目录（`mkdirs`）创建、已存在标记不覆盖且返回 `false`。
+
+**验证**：`:app:assembleDebug` + `:app:testDebugUnitTest` → `BUILD SUCCESSFUL`，**1290 例 / 170 类 / 0 失败 / 3 跳过**（新增 3 例全绿）；产物 `app/build/outputs/apk/debug/AVBox_debug.apk`（2026-10-20 08:46）。真机无法靠「相册里没有」证明（本来就没有媒体产物），只能 `run-as … ls -la files/.nomedia` 看文件、或首次启动看 `echo-storage nomedia` 日志。
+
+**取舍**：不覆盖 `cache/`（`exo-video-cache` 是分片缓存、扩展名非媒体，现代系统也不扫）；不加内部 `filesDir`（无意义）；不写进 assets 再拷贝（多一次 IO）。新增 `.nomedia` 不会清除已入库的旧索引，但本项目没有可被索引的文件，无影响。
+
+## 调色对 HDR 片源的跳过失效（2026-10-20，用户报「点调色仍重建内核、关闭才出提示、HDR 画面彩色噪点」）
+
+**根因**：`PlayerEngine.reportVideoSizeFromTracks()` 开头是 `if (!videoEffectsOpen) return`，而 `pictureHdrSource` 的赋值写在这道门之后 ⇒ 未挂链时永远不判 HDR。于是 HDR 片首次点预置时 `PictureEffects.consumeRestartNeeded()` 拿到 `isPictureHdrSource()=false`，照常 `push()` 下发效果并 `restartForPictureIfNeeded()` 重建内核；重建后的 `onTracksChanged`（此时 `videoEffectsOpen=true`）才把标记翻成 true，所以面板提示要等下一次刷新（用户点「关闭」）才出现。彩色噪点的两个嫌疑：①首次点预置时 `push()` 不判 HDR，仍会 `applyVideoEffects`/暂停态 REDRAW；②重建后的 passthrough 用 `BaseGlShaderProgram(false)` 的 8-bit 输出，HDR 纯拷贝被量化。
+
+**修复（3 文件）**：
+
+- `PlayerEngine.reportVideoSizeFromTracks`：`pictureHdrSource` 赋值提到 `videoEffectsOpen` 门控之前（尺寸补报/监听仍只在挂链时做）；未挂链且命中 HDR 打 `echo-picture-hdr: source=true`。
+- `PictureEffects.push` / `setAnime4kSharpen`：`isPictureHdrSource()` 早退——不下发效果、不重绘；配合既有的 `consumeRestartNeeded` HDR 早退，首次点预置只刷新面板提示，不重建内核。
+- `VideoAdjustShaderProgram` / `Anime4kChainProgram`：`BaseGlShaderProgram` 的高精度开关由固定 `false` 改为传 `useHdr`/`hdr`，HDR 纯拷贝走 float 输出（与 media3 `DefaultShaderProgram` 同口径；Anime4k 的 HDR 纯拷贝只用 1 个输出纹理，避免 3×RGBA16F 的 4K 显存开销）；media3 `checkColors` 已对 HDR 输入/输出强制 ES 3.0 上下文，不新增 ES2 兼容风险。
+
+**未做**：不在 `onTracksChanged` 撤链（既有结论：异步派发可能晚于 processor configure；HDR 仍保留 GL sink 纯拷贝，见活规范 §6.17）；不改 `onPrepare` 的起播下发（此刻还拿不到轨道 HDR 信息，预置记忆的 HDR 片仍以纯拷贝链路起播）。
+
+**验证**：`:app:assembleDebug` + `:app:testDebugUnitTest` 绿（**1290 例 / 170 类 / 0 失败 / 3 跳过**）；「轨道 → HDR 判定 → 面板/重播」这条设备链路没有单测可覆盖（`reportVideoSizeFromTracks` 依赖实例与 `Tracks`），待真机走查。**判据**：①HDR 片点任一预置，面板立即出 `player_picture_unavailable_hdr`，无 `echo-picture-effects: rebuild kernel on next start`、无 `release player kernel`；②日志有 `echo-picture-hdr: source=true`；③不出彩色噪点；④SDR 片首次开调色仍照旧重建一次并生效；⑤预置非「原始」时起播 HDR 片仍是纯拷贝，面板提示 HDR。**未提交**。
+
+## 液态玻璃通透度高位的「去材质 + 重调色」修正（2026-10-20，用户报「通透度拉高后底栏/控件像把底部色彩放大、变深」）
+
+**现象**：把「通透度」拉到高位后，底部导航与应用控件的玻璃变成一块深色、高饱和的模糊色块，像给下面的海报重新调了色；选中 tab 一带更暗。用户先问「这是 bug 吗」。
+
+**结论**：不是渲染/状态实现错误（默认 50% 有单测锁恒等），是 09-24 那轮 retune 把高位补偿调过头了；而且那轮改动没有进文档。**当天三轮**：①先按「底板保底 + 补偿减半」改，用户装机带图反馈 100% 变成奶白、失去液态玻璃观感 ⇒ 顶档恢复全透明；②保留补偿减半后用户再报「通透度调高后颜色偏艳、偏深」⇒ 高透端调色归零、饱和度随通透度降到 1.0。
+
+**根因（三条叠加，全在 `LiquidGlassConfig` 派生量）**：
+
+- **底板在 100% 归零**：`containerAlphaScale` 被 09-24 `a984c97 "tune translucency"` 从 `1.25 - 0.5t` 改成 `2 - 2t`；底栏/控件底色 = `surfaceContainer@0.4 × 系数` ⇒ 50% 为 0.40、75% 为 0.20、90% 为 0.08、100% 为 0。玻璃只剩模糊 + 高光。
+- **采样内容被重新调色，幅度比 09-23 初版大 4 倍 / 2 倍**：同一次 retune 把 `contentBrightness` 的 0.06 改成 0.24、`contentContrast` 的 0.24 改成 0.5（`saturation` 恒 1.5）。100% 时 `colorControls` 的 ColorMatrix 偏移 `(0.5 - 1.25/2 - 0.12) × 255 ≈ -62`，即每通道先减 62，再乘 1.25 对比并做 1.5 倍饱和 —— 橙色 (230,120,60) 约变 (255,76,0)，中灰 128 → 98。**用户看到的「放大底部色彩、变深」就是这一步**：它在给玻璃背后的内容重新调色。
+- **文档缺口**：spec/history 仍只有 09-23 的旧系数，09-24 retune 无记录；09-23 条目自述那组系数是「估的、没有实测依据」⇒ 高位观感从未被验证。
+
+**未改（明确保留）**：`lens(30dp)` 在 64dp 高胶囊上的 ~47% 折射比例（既定设计，与 40dp 控件限幅后 ≈50% 同比例）；选中指示层静止时的 10% 黑叠加。
+
+**修复（3 文件 + 1 测试，同日三轮定稿）**：
+
+- `LiquidGlassConfig`：`containerAlphaScale = 2f - 2f * translucency`（0 ~ 2，**100% = 0：底板完全透明**；50% 仍 1.0）；`contentBrightness = (0.5f - translucency).coerceAtLeast(0f) * 0.12f`（只在半透明端提亮，最高 +0.06）、`contentContrast = 1f - (0.5f - translucency).coerceAtLeast(0f) * 0.25f`（最低 0.875）、`contentSaturation = 1.5f - (translucency - 0.5f).coerceAtLeast(0f)`（1.5 → 1.0）。**高透端（>0.5）不再压暗/提对比**，50% 锚点仍是 1 / 0 / 1 / 1.5。
+- `GlassTopBar` 与 `FloatingNavBar` 的两处 `colorControls(saturation = 1.5f)` 改读 `config.contentSaturation`。
+- `LiquidGlassConfigTest`：两端值 2 / 0；新增高透端 0 / 1 / 1.0 与半透明端提亮/降对比的断言（`translucency_dimsContentOnlyAboveDefault`），默认恒等补 1.5。
+- **第一轮方案与否定原因（留档）**：曾改 `1.5f - translucency`（100% 保底 0.5 ⇒ 20% 底板），用户 100% 下截图显示整条变成奶白/浅米色，色彩被浅色底板盖住，「没有液态玻璃的通透感」⇒ 保底方案对浅色主题不成立：`surfaceContainer` 本身就是近白，任何可感知的保底 alpha 都会把底栏推成白玻璃。**发暗只能靠补偿幅度解决，不要再加底板下限。**
+- **第三轮（同日，用户再报「通透度调高后颜色偏艳、偏深」）**：底板归零后，剩下的 -0.06 / 1.125 / 1.5 仍在给采样内容重新调色 —— 把高透端的 brightness/contrast 归零、saturation 线性降到 1.0；半透明端行为不变 ⇒ 100% 是「模糊后的原色」。
+
+**验证**：`:app:assembleDebug` + `:app:testDebugUnitTest` → `BUILD SUCCESSFUL`（47s），**1290 例 / 170 类 / 0 失败 / 3 跳过**；`LiquidGlassConfigTest` 3/3 绿。**未真机** —— 观感类改动只能构建 + 单测。**走查判据**：①通透度 100% 时底板完全透明：能直接看到模糊后的页面颜色（深色海报仍是深色），不再发白/发奶；②高透端不再压暗/提对比、饱和度降到 1.0，100% 应是「模糊后的原色」，不偏艳不偏深；③50%–100% 之间饱和度平滑过渡（75% 约 1.25），无突变；④默认 50% 与改前一致；⑤若仍觉得糊，先确认滑杆确实在 80–100%（低端按定义就是奶白）。**未提交**（等指示）。
+
+## 液态玻璃默认参数调整（2026-10-20，用户拍板「模糊 10 / 扭曲 20 / 通透度 70%」）
+
+**需求**：三个默认值下调 —— 模糊 20dp → **10dp**、扭曲 30dp → **20dp**、通透度 50% → **70%**；两个开关与色散默认不变。
+
+**落地（1 文件 + 1 测试）**：`LiquidGlassState` 的三个 `DEFAULT_*` 常量改为 `10f / 20f / 0.7f`；`restoreDefaults()` 自动跟随（头部「重置」= 回到新默认）。派生量随之变化（50% 的「数学中性点」仍在，但不再是默认）：
+
+| | 旧默认(50%) | 新默认(70%) |
+|---|---|---|
+| 底板 alpha | 0.40 | 0.24 |
+| 采样亮度 / 对比 | 0 / 1 | 0 / 1 |
+| 采样饱和度 | 1.5 | 1.3 |
+| 模糊 | 20dp | 10dp |
+| 扭曲 | 30dp | 20dp |
+
+**⚠️ 存量安装不会自动变**：三个值都存 KV（`LIQUID_GLASS_BLUR/DISTORTION/TRANSLUCENCY`），`KV.get` 只在键不存在时才用默认 ⇒ 已经拖过滑杆的机器保持自己的值；要看新默认可点分组头部「重置」（它只重置后四项，不动两个开关）。不迁移、不覆盖用户值。
+
+**口径变化**：09-23 起的「默认 0.5 ⇒ 与加此项前逐像素一致」锚点**作废**（0.5 仍是公式中性点，仅此而已）；默认观感从此更透、更淡（底板 0.4 → 0.24、饱和 1.5 → 1.3、模糊/折射各降一档）。
+
+**测试**：`LiquidGlassConfigTest` 把原 `defaultTranslucency_isIdentity` 拆成 `halfTranslucency_isNeutralAnchor`（0.5 处 1 / 0 / 1 / 1.5）+ `defaults_areLowerBlurAndMoreTranslucent`（常量 10/20/0.7，70% 处 0.6 / 0 / 1 / 1.3），共 4 例。
+
+**验证**：`:app:assembleDebug` + `:app:testDebugUnitTest` → `BUILD SUCCESSFUL`（35s），**1291 例 / 170 类 / 0 失败 / 3 跳过**；`LiquidGlassConfigTest` 4/4 绿；`git diff --check` 干净。**未真机**。**走查判据**：①全新安装 / 清数据后，设置页显示模糊 10、扭曲 20、通透度 70%；②70% 下底栏底板约 24% 不透明度、颜色不偏艳；③点「重置」回到 10/20/70/色散开；④已调过的机器保持自己的值不被覆盖。**未提交**。
+
+## 电影匹配不再用剧照缩略图，改显示完整资源名（2026-10-20，用户拍板）
+
+**背景**：用户问「能被 TMDB 匹配上的电影会用海报档缩略图吗」。核查：电影（`mediaType != TV`）在 `resolveEpisodeMetaForName` 里走 `ensureStills`，取 `/movie/{id}/images` 的 **backdrops**（textless 优先 / vote 降序 / 前 10）按集号循环填 16:9 选集卡；TV 则按 season/episode 取 `still_path`。所以严格说不是 poster，但很多片的 textless backdrop 就是海报同款 key art，看起来就是「海报被塞进缩略图」。用户要求取消电影这条，改为完整资源名。
+
+**落地（3 文件 + 1 测试）**：
+
+- `TmdbPoster`：movie 分支不再请求 stills，直接 `LOG.i("echo-tmdb episodes movie=… thumbs=off")` + 写 `[]` 并返回空列表（`[]` 作为「movie 命中」标记，区别于未命中的 `null`）；`EPISODES_CACHE_PREFIX` 升 `cache_tmdb_episodes2_`，旧缓存（含旧电影剧照）整体失效一次，TV 会重拉一次，不需要手工清缓存。
+- `DetailEpisodes`：`movieMatch = meta != null && meta.isEmpty()`；命中时不再渲染 16:9 缩略图行，改为 `Column` + 新增 `MovieNameCard`（整宽 `detailGlass` 卡、`titleMedium`、`maxLines = Int.MAX_VALUE` + `softWrap`，完整资源名自动换行；选中态 1.5dp primary 描边 + 文字 primary），点击照常播放；**TV 命中/未命中仍走原来的 LazyRow**（缩略图卡 / 纯文字小卡）不动。auto-scroll 的 `LaunchedEffect` 加 `movieMatch` 提前返回，避免对未挂载的 LazyRow 调 `scrollToItem`。
+- `TmdbPosterTest`：新增 `emptyEpisodesValue_marksMovieMatch` 锁 `[]` 哨兵（`decodeEpisodesValue("[]")` 非 null 且为空）。
+
+**未改**：Hero 的 landscape backdrop（`resolveBackdrops` 仍复用 `ensureStills`）不动；TV 分集缩略图、映射规则、季/集缓存全部不动。
+
+**验证**：`:app:assembleDebug` + `:app:testDebugUnitTest` → `BUILD SUCCESSFUL`（39s），**1292 例 / 170 类 / 0 失败 / 3 跳过**（`TmdbPosterTest` 13/13）。**未真机**。**走查判据**：①TMDB 命中的电影，选集是一张整宽卡、完整显示资源名（不截断、可换行），没有 16:9 缩略图；②同一部片之前看过的旧缓存不会再冒图（前缀已换）；③TMDB 命中的电视剧选集仍是 16:9 剧照卡，集号/标题/选中描边不变；④未命中的片保持原来的纯文字小卡。**未提交**。

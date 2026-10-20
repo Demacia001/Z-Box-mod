@@ -12,7 +12,9 @@ data class LiquidGlassConfig(
 ) {
     val containerAlphaScale: Float get() = 2f - translucency * 2f
 
-    val contentBrightness: Float get() = (0.5f - translucency) * 0.24f
+    val contentBrightness: Float get() = (0.5f - translucency).coerceAtLeast(0f) * 0.12f
 
-    val contentContrast: Float get() = 1f + (translucency - 0.5f) * 0.5f
+    val contentContrast: Float get() = 1f - (0.5f - translucency).coerceAtLeast(0f) * 0.25f
+
+    val contentSaturation: Float get() = 1.5f - (translucency - 0.5f).coerceAtLeast(0f)
 }

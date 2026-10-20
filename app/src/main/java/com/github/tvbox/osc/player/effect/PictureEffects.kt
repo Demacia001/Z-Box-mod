@@ -158,6 +158,7 @@ object PictureEffects {
     fun setAnime4kSharpen(value: Float) {
         Anime4kSettings.setSharpen(value)
         val player = current?.get() ?: return
+        if (player.isPictureHdrSource()) return
         if (RedrawPolicy.shouldRedrawOnParams(player.isPlaying, player.isPictureEffectsActive())) {
             player.redrawVideoFrame()
         }
@@ -193,6 +194,7 @@ object PictureEffects {
         colorTone.setProfile(profile)
         detail.setProfile(profile)
         if (tunneling) return
+        if (player.isPictureHdrSource()) return
         if (openedThisSession) {
             if (RedrawPolicy.shouldRedrawOnParams(player.isPlaying, player.isPictureEffectsActive())) {
                 player.redrawVideoFrame()

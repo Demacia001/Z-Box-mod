@@ -299,7 +299,7 @@ fun FloatingNavBar(
                             colorControls(
                                 brightness = config.contentBrightness,
                                 contrast = config.contentContrast,
-                                saturation = 1.5f,
+                                saturation = config.contentSaturation,
                             )
                             blur(config.blurDp.dp.toPx())
                             lens(
@@ -381,7 +381,7 @@ fun FloatingNavBar(
                                 colorControls(
                                     brightness = config.contentBrightness,
                                     contrast = config.contentContrast,
-                                    saturation = 1.5f,
+                                    saturation = config.contentSaturation,
                                 )
                                 blur(config.blurDp.dp.toPx())
                                 lens(

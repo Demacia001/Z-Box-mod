@@ -13,6 +13,7 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.asPaddingValues
 import androidx.compose.foundation.layout.aspectRatio
+import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
@@ -65,6 +66,8 @@ import kotlinx.coroutines.launch
 
 private val EpisodeThumbWidth = 210.dp
 
+private const val EpisodeSheetHeightFraction = 0.6f
+
 @Composable
 internal fun EpisodeRow(
     vm: DetailViewModel,
@@ -111,8 +114,16 @@ internal fun EpisodeRow(
         }
         val listState = rememberLazyListState()
         var prevReverseSort by remember { mutableStateOf(info.reverseSort) }
-        LaunchedEffect(playIndex, currentFlag, episodes.size, info.reverseSort) {
-            if (episodes.isEmpty()) return@LaunchedEffect
+        val seasonHint = remember(info.name, currentFlag) {
+            TmdbApi.parseSeasonHint(info.name) ?: TmdbApi.parseSeasonHint(currentFlag)
+        }
+        val episodeNumbers = remember(episodes, info.reverseSort) {
+            episodes.map { EpisodeMatcher.extractEpisodeNumber(it.name) }
+        }
+        val episodeMeta = rememberEpisodeMeta(info.name, info.en, info.year, episodes.size, seasonHint, episodeNumbers)
+        val movieMatch = episodeMeta != null && episodeMeta.isEmpty()
+        LaunchedEffect(playIndex, currentFlag, episodes.size, info.reverseSort, movieMatch) {
+            if (movieMatch || episodes.isEmpty()) return@LaunchedEffect
             val reverseChanged = info.reverseSort != prevReverseSort
             prevReverseSort = info.reverseSort
             if (reverseChanged) {
@@ -121,27 +132,37 @@ internal fun EpisodeRow(
                 listState.scrollToItem(minOf(playIndex, episodes.size - 1))
             }
         }
-        val seasonHint = remember(info.name, currentFlag) {
-            TmdbApi.parseSeasonHint(info.name) ?: TmdbApi.parseSeasonHint(currentFlag)
-        }
-        val episodeNumbers = remember(episodes, info.reverseSort) {
-            episodes.map { EpisodeMatcher.extractEpisodeNumber(it.name) }
-        }
-        val episodeMeta = rememberEpisodeMeta(info.name, info.en, info.year, episodes.size, seasonHint, episodeNumbers)
-        LazyRow(
-            state = listState,
-            contentPadding = PaddingValues(horizontal = 16.dp),
-            horizontalArrangement = Arrangement.spacedBy(10.dp),
-        ) {
-            itemsIndexed(episodes) { index, ep ->
-                EpisodeCard(
-                    name = ep.name ?: (index + 1).toString(),
-                    episodeNumber = episodeNumbers.getOrNull(index)?.takeIf { it > 0 } ?: (index + 1),
-                    thumbEnabled = episodeMeta != null,
-                    episode = episodeMeta?.getOrNull(index),
-                    selected = index == playIndex,
-                    onClick = { vm.onEpisodeClick(index) },
-                )
+        if (movieMatch) {
+            Column(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = 16.dp),
+                verticalArrangement = Arrangement.spacedBy(8.dp),
+            ) {
+                episodes.forEachIndexed { index, ep ->
+                    MovieNameCard(
+                        name = ep.name ?: (index + 1).toString(),
+                        selected = index == playIndex,
+                        onClick = { vm.onEpisodeClick(index) },
+                    )
+                }
+            }
+        } else {
+            LazyRow(
+                state = listState,
+                contentPadding = PaddingValues(horizontal = 16.dp),
+                horizontalArrangement = Arrangement.spacedBy(10.dp),
+            ) {
+                itemsIndexed(episodes) { index, ep ->
+                    EpisodeCard(
+                        name = ep.name ?: (index + 1).toString(),
+                        episodeNumber = episodeNumbers.getOrNull(index)?.takeIf { it > 0 } ?: (index + 1),
+                        thumbEnabled = episodeMeta != null,
+                        episode = episodeMeta?.getOrNull(index),
+                        selected = index == playIndex,
+                        onClick = { vm.onEpisodeClick(index) },
+                    )
+                }
             }
         }
     }
@@ -253,6 +274,35 @@ private fun EpisodeCard(
 }
 
 @Composable
+private fun MovieNameCard(name: String, selected: Boolean, onClick: () -> Unit) {
+    val shape = RoundedCornerShape(16.dp)
+    Text(
+        text = name,
+        style = MaterialTheme.typography.titleMedium,
+        fontWeight = FontWeight.SemiBold,
+        color = if (selected) {
+            MaterialTheme.colorScheme.primary
+        } else {
+            MaterialTheme.colorScheme.onSurface
+        },
+        maxLines = Int.MAX_VALUE,
+        softWrap = true,
+        modifier = Modifier
+            .fillMaxWidth()
+            .detailGlass(shape)
+            .then(
+                if (selected) {
+                    Modifier.border(1.5.dp, MaterialTheme.colorScheme.primary, shape)
+                } else {
+                    Modifier
+                },
+            )
+            .clickable(onClick = onClick)
+            .padding(horizontal = 14.dp, vertical = 12.dp),
+    )
+}
+
+@Composable
 private fun PillAction(iconRes: Int, text: String, onClick: () -> Unit) {
     Row(
         verticalAlignment = Alignment.CenterVertically,
@@ -324,6 +374,11 @@ internal fun EpisodeSheet(vm: DetailViewModel, revision: Int, slideFromEnd: Bool
             },
         isScrollable = false,
         slideFromEnd = slideFromEnd,
+        modifier = if (slideFromEnd) {
+            Modifier
+        } else {
+            Modifier.fillMaxHeight(EpisodeSheetHeightFraction)
+        },
     ) {
         val dismissAnimated = LocalSheetDismiss.current
         Column(modifier = Modifier.fillMaxWidth()) {

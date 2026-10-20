@@ -270,6 +270,7 @@
     public static *** d(...);
     public static *** i(...);
     public static *** e(...);
+    public static *** debugI(...);
     public static *** longI(...);
     public static *** longE(...);
 }

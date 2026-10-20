@@ -111,6 +111,18 @@ class ApiConfig private constructor() {
         configLoader.loadLiveConfig(useCache, callback)
     }
 
+    fun refreshConfigIfChanged(onChanged: (String, String) -> Unit) {
+        configLoader.refreshIfChanged(onChanged)
+    }
+
+    fun applyRefreshedConfig(apiUrl: String, body: String) {
+        configLoader.applyRefreshed(apiUrl, body)
+    }
+
+    fun restoreConfigCache(apiUrl: String, body: String) {
+        configLoader.restoreCache(apiUrl, body)
+    }
+
     fun hasLiveConfigResult(): Boolean {
         return !liveChannelGroupList.isEmpty()
     }

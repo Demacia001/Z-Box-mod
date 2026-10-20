@@ -82,6 +82,12 @@ class TmdbPosterTest {
     }
 
     @Test
+    fun emptyEpisodesValue_marksMovieMatch() {
+        val meta = TmdbPoster.decodeEpisodesValue("[]")
+        assertTrue(meta != null && meta.isEmpty())
+    }
+
+    @Test
     fun aliasHitValue_decodesHitOrNull() {
         val encoded = """{"id":88055,"mediaType":"tv","title":"Servant","originalTitle":"Servant","year":2019,"posterPath":"/k3hOXC2Uo2duEfuYbdd0Rkta3Ad.jpg"}"""
         val hit = TmdbPoster.decodeAliasHitValue(encoded)!!

@@ -81,7 +81,7 @@ private fun Modifier.glassSurface(
             colorControls(
                 brightness = config.contentBrightness,
                 contrast = config.contentContrast,
-                saturation = 1.5f,
+                saturation = config.contentSaturation,
             )
             blur(blurPx)
             if (supportsLens) {

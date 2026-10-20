@@ -14,7 +14,7 @@ internal class Anime4kChainProgram(
     private val context: Context,
     private val tier: Anime4kTier?,
     hdr: Boolean,
-) : BaseGlShaderProgram(false, 3) {
+) : BaseGlShaderProgram(hdr, if (hdr) 1 else 3) {
 
     private val passes = ArrayList<CompiledPass>()
     private val targets = ArrayList<Target>()

@@ -625,4 +625,39 @@ object FileUtils {
         }
         return externalFilesDir.absolutePath
     }
+
+    @JvmStatic
+    fun ensureNoMediaMarker() {
+        try {
+            val dir = requireNotNull(AppContextHolder.context()) { "app context not initialized" }.getExternalFilesDir(null)
+                ?: return
+            if (createNoMediaMarkerIfAbsent(dir)) {
+                LOG.i("echo-storage nomedia path=" + dir.absolutePath)
+            }
+        } catch (e: Exception) {
+            LOG.e("FileUtils", e)
+        }
+    }
+
+    @JvmStatic
+    fun createNoMediaMarkerIfAbsent(dir: File): Boolean {
+        return try {
+            if (!dir.exists() && !dir.mkdirs()) {
+                LOG.e("echo-storage nomedia mkdir-failed path=" + dir.absolutePath)
+                return false
+            }
+            val marker = File(dir, NO_MEDIA_MARKER)
+            if (marker.exists()) return false
+            if (!marker.createNewFile() && !marker.exists()) {
+                LOG.e("echo-storage nomedia create-failed path=" + marker.absolutePath)
+                return false
+            }
+            true
+        } catch (e: Exception) {
+            LOG.e("FileUtils", e)
+            false
+        }
+    }
+
+    private const val NO_MEDIA_MARKER = ".nomedia"
 }

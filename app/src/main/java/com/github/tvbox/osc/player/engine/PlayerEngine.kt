@@ -903,12 +903,18 @@ class PlayerEngine(
     }
 
     private fun reportVideoSizeFromTracks(tracks: Tracks) {
-        if (!videoEffectsOpen) return
         for (group in tracks.groups) {
             if (group.type != C.TRACK_TYPE_VIDEO || !group.isSelected) continue
             for (i in 0 until group.length) {
                 if (!group.isTrackSelected(i)) continue
                 val format = group.getTrackFormat(i)
+                pictureHdrSource = ColorInfo.isTransferHdr(format.colorInfo)
+                if (!videoEffectsOpen) {
+                    if (pictureHdrSource) {
+                        LOG.i("echo-picture-hdr: source=true")
+                    }
+                    return
+                }
                 if (format.width <= 0 || format.height <= 0) return
                 var width = format.width
                 var height = format.height
@@ -917,7 +923,6 @@ class PlayerEngine(
                     width = height
                     height = rotated
                 }
-                pictureHdrSource = ColorInfo.isTransferHdr(format.colorInfo)
                 LOG.i(
                     "echo-picture-size: ${width}x$height rotation=${format.rotationDegrees} hdr=$pictureHdrSource",
                 )

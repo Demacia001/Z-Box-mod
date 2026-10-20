@@ -37,7 +37,6 @@ import com.github.tvbox.osc.util.SpiderStorageNotice
 import kotlinx.coroutines.launch
 
 private const val SYSBAR_APPEARANCE_REASSERT_DELAY_MS = 400L
-private const val VIDEO_SIZE_WATCH_TIMEOUT_MS = 10000L
 private const val CAST_URL_POLL_MS = 250L
 private const val CAST_URL_WAIT_ATTEMPTS = 20
 
@@ -53,13 +52,6 @@ class DetailActivity : BaseActivity(), PageHost {
     private var pendingEpisodeSync = false
     private var videoSizeWatchArmed = false
     private var castWaitAttempts = 0
-
-    private val videoSizeTimeoutRunnable = Runnable {
-        if (!videoSizeWatchArmed) return@Runnable
-        LOG.i("echo-player detail size timeout, keep portrait placeholder")
-        videoSizeWatchArmed = false
-        playContainer?.setVideoSizeReadyListener(null)
-    }
 
     private val castWaitRunnable = object : Runnable {
         override fun run() {
@@ -366,7 +358,6 @@ class DetailActivity : BaseActivity(), PageHost {
         } else {
             videoSizeWatchArmed = false
             playContainer?.setVideoSizeReadyListener(null)
-            window.decorView.removeCallbacks(videoSizeTimeoutRunnable)
             val controller = WindowCompat.getInsetsController(window, window.decorView)
             controller.show(WindowInsetsCompat.Type.navigationBars())
             applyHideStatusBarPref()
@@ -387,13 +378,11 @@ class DetailActivity : BaseActivity(), PageHost {
         if (videoSizeWatchArmed) return
         videoSizeWatchArmed = true
         container.setVideoSizeReadyListener { portraitVideo -> onVideoSizeReady(portraitVideo) }
-        window.decorView.postDelayed(videoSizeTimeoutRunnable, VIDEO_SIZE_WATCH_TIMEOUT_MS)
     }
 
     private fun onVideoSizeReady(portraitVideo: Boolean) {
         if (!videoSizeWatchArmed) return
         videoSizeWatchArmed = false
-        window.decorView.removeCallbacks(videoSizeTimeoutRunnable)
         playContainer?.setVideoSizeReadyListener(null)
         applyVideoOrientation(portraitVideo)
     }
@@ -447,7 +436,6 @@ class DetailActivity : BaseActivity(), PageHost {
     }
 
     override fun onDestroy() {
-        window.decorView.removeCallbacks(videoSizeTimeoutRunnable)
         window.decorView.removeCallbacks(castWaitRunnable)
         releasePlayContainer()
         vm.destroyEngine()

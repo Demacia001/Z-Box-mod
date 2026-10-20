@@ -16,11 +16,24 @@ class LiquidGlassConfigTest {
     )
 
     @Test
-    fun defaultTranslucency_isIdentity() {
-        val config = at(LiquidGlassState.DEFAULT_TRANSLUCENCY)
+    fun halfTranslucency_isNeutralAnchor() {
+        val config = at(0.5f)
         assertEquals(1f, config.containerAlphaScale, 0f)
         assertEquals(0f, config.contentBrightness, 0f)
         assertEquals(1f, config.contentContrast, 0f)
+        assertEquals(1.5f, config.contentSaturation, 0f)
+    }
+
+    @Test
+    fun defaults_areLowerBlurAndMoreTranslucent() {
+        assertEquals(10f, LiquidGlassState.DEFAULT_BLUR_DP, 0f)
+        assertEquals(20f, LiquidGlassState.DEFAULT_DISTORTION_DP, 0f)
+        assertEquals(0.7f, LiquidGlassState.DEFAULT_TRANSLUCENCY, 0f)
+        val config = at(LiquidGlassState.DEFAULT_TRANSLUCENCY)
+        assertEquals(0.6f, config.containerAlphaScale, 0f)
+        assertEquals(0f, config.contentBrightness, 0f)
+        assertEquals(1f, config.contentContrast, 0f)
+        assertEquals(1.3f, config.contentSaturation, 0f)
     }
 
     @Test
@@ -31,10 +44,18 @@ class LiquidGlassConfigTest {
     }
 
     @Test
-    fun translucency_compensatesContentReadability() {
+    fun translucency_dimsContentOnlyAboveDefault() {
         val opaque = at(0f)
         val clear = at(1f)
-        assertTrue(clear.contentBrightness < opaque.contentBrightness)
-        assertTrue(clear.contentContrast > opaque.contentContrast)
+        assertTrue(opaque.contentBrightness > 0f)
+        assertTrue(opaque.contentContrast < 1f)
+        assertEquals(0f, at(0.75f).contentBrightness, 0f)
+        assertEquals(1f, at(0.75f).contentContrast, 0f)
+        assertEquals(0f, clear.contentBrightness, 0f)
+        assertEquals(1f, clear.contentContrast, 0f)
+        assertEquals(1.5f, at(0.5f).contentSaturation, 0f)
+        assertTrue(clear.contentSaturation < at(0.75f).contentSaturation)
+        assertTrue(at(0.75f).contentSaturation < 1.5f)
+        assertEquals(1f, clear.contentSaturation, 0f)
     }
 }

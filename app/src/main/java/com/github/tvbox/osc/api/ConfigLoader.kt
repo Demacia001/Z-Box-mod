@@ -109,6 +109,50 @@ class ConfigLoader(private val owner: ApiConfig) {
         })
     }
 
+    fun refreshIfChanged(onChanged: (String, String) -> Unit) {
+        configLoadExecutor.execute(Runnable {
+            try {
+                val apiUrl = KV.get(HawkConfig.API_URL, "")
+                if (!isRemoteSource(apiUrl)) {
+                    LOG.debugI("echo-config-refresh: skip local")
+                    return@Runnable
+                }
+                val app = App.getInstance() ?: return@Runnable
+                val cache = File(app.getFilesDir().getAbsolutePath() + "/" + MD5.encode(apiUrl))
+                val previous = if (cache.exists()) readConfigFile(cache) else ""
+                val resolved = ConfigParser.configUrl(apiUrl, Supplier { ApiConfig.localFileBase() })
+                fetchConfigAsync(apiUrl, resolved.url, resolved.key, object : ConfigFetchCallback {
+                    override fun success(body: String) {
+                        if (ConfigContentDiff.isSame(body, previous)) {
+                            LOG.debugI("echo-config-refresh: unchanged")
+                            return
+                        }
+                        LOG.debugI("echo-config-refresh: changed " + previous.length + "->" + body.length)
+                        FileUtils.saveCache(cache, body)
+                        onChanged(body, previous)
+                    }
+
+                    override fun error(error: String?) {
+                        LOG.debugI("echo-config-refresh: failed " + error)
+                    }
+                })
+            } catch (th: Throwable) {
+                LOG.debugI("echo-config-refresh: error " + th.message)
+            }
+        })
+    }
+
+    fun applyRefreshed(apiUrl: String, body: String) {
+        clearApiLinesIfUnmatched(apiUrl)
+        owner.parseJson(apiUrl, body)
+    }
+
+    fun restoreCache(apiUrl: String, body: String) {
+        if (body.isEmpty()) return
+        val app = App.getInstance() ?: return
+        FileUtils.saveCache(File(app.getFilesDir().getAbsolutePath() + "/" + MD5.encode(apiUrl)), body)
+    }
+
     fun loadLiveConfig(useCache: Boolean, callback: ApiConfig.LoadConfigCallback) {
         configLoadExecutor.execute(Runnable { runLoadLiveConfig(useCache, callback) })
     }

@@ -5,7 +5,6 @@
 > 状态:**as-built 活规范(2026-10-20 重写)**。链路已落地并真机验证:UDF → mpls/m2ts → 192→188 → `TsExtractor` + 自定义 reader;多段盘拼接、RAP 起播、4K 单层/双层盘、ISO9660+UDF 混合盘、裸 192B BDAV 都跑通。**唯一硬边界是 4K Main10 的模拟器解码能力**,不是选片或解析。
 > ⚠️ **改动 `engine/iso/**`、`MediaSources` 的 ISO 分支、`PlayerEngine` 的 isoSession 语义、或任何 `TrackOutput`/`ExtractorOutput` 包装层前必读**;`§4` 是不变量(违反即回归),`§5` 是已知坑,`§7` 是走查清单(**编号 1–12 与节号 §7 保持稳定**,外部文档按「§7 清单」引用)。
 > 过程与取证**不写在这里**:案例、缺陷解剖、判负实验、性能实测全在 `history/iso-playback-chronicle.md`(下文引用写作「档案 §14.13」)。
-> 旧的 `文档/iso-playback-spec-20261019.md` 自 2026-10-20 起只是**存档快照**,不要再改它;`文档/` 在 `.gitignore` 里,只有本文与档案会进仓库。
 
 ## 0. 摘要与范围
 
@@ -253,11 +252,11 @@ ADB="/c/Users/Administrator/AppData/Local/Android/Sdk/platform-tools/adb.exe"
 | 2 | 「软解超 `NO_EXCEEDS_CAPABILITIES` 时是否自动回退硬解」 | **待拍板** |
 | 3 | 盘 B(`00020.mpls`,302 段)的诱饵审计:`duration` 与 `unique` 是否相等 | **未核对** |
 | 4 | 用户选播放列表 + 按盘记选择 | 已评估,**用户拍板暂不做** |
-| 5 | 音轨"按 PID 载荷判活"的更精确丢弃规则 | 可选,**未开工**(`EsInfo` 不带 pid,需包装层,约 40 行) |
-| 6 | 临时 Format 的准值:从 STN 的 `audio_format`/声道数读,而非按类型猜 | 可选,**未开工** |
+| 5 | 音轨"按 PID 载荷判活"的更精确丢弃规则 | 可选,**未开工**(现状见下,别读成空白)。**已有的一半**:`DeferredTrackOutput` 在 **Format 或首个 sample 任一到达**时就 `open()`(「有数据即落地」),所以"永远不说话的轨"仍会等到 `DEFER_HOLD_MS = 1500ms` 被 `track-drop`。**缺的一半**:判死依据是**时长**而非**该 PID 的载荷**(`PrimaryVideoExtractor.kt` 的 `dropAllowed()` 只看"主视频/音频是否已落地");要做可挂在 `LanguageOverrideReader`(它已是带 pid 的包装层,`EsInfo` 不带 pid 的障碍已绕过) |
+| 6 | 临时 Format 的准值:从 STN 的 `audio_format`/声道数读,而非按类型猜 | 可选,**未开工**(现状见下)。`BdTsPayloadReaderFactory.PROVISIONAL_*` 仍是硬编码 `48kHz` + `6ch`(AC-3/E-AC-3/DTS) / `2ch`(LPCM);`MplPlaylist.readStnStreams` **只读 `pid + language`**,`audio_format`/声道数字段根本没解。代价仅限"真实 Format 到达前音轨菜单显示猜值",不影响出声 |
 | 7 | 4K 多段盘、PGS 跨段延续、分钟级跨段 | **未覆盖** |
 | 8 | 稳态吞吐长跑(2–3 分钟连续) | **未测**;现有 5.9–11.8MB/s 都是折算值 |
-| 9 | seek 的两个疑点:`TsBinarySearchSeeker` 为何一次二分都没跑;落点开始读时视频轨为何拿不到 Format | **未结**(档案 §11.8.5) |
+| 9 | ~~seek 的两个疑点:`TsBinarySearchSeeker` 为何一次二分都没跑;落点开始读时视频轨为何拿不到 Format~~ | **已结(2026-10-20 真机复验,档案 §11.10)**。①"二分没跑"不是缺陷:重建路径按 CLPI 访问点算出**精确字节偏移**、直接开新 period,**本来就不该跑二分**;段内 seek 才是 media3 容器 seek(真机 `echo-iso-seek:807646097:4467110511`,一次跳 807MB,无二次 `codec-init`)。②"落点拿不到 Format"的前提不成立:访问点**自带参数集**(档案 §11.9.2 逐字节解开 `AUD/SPS/PPS/SEI`,每个访问点重发),真机 RAP 起播 `codec-init: name=c2.qti.avc.decoder kind=HARDWARE` 出画有声有字。真正留下的是教训:模拟器假解码器给的 4 次判负全部作废(档案 §11.10) |
 
 ## 10. 档案索引
 
@@ -266,7 +265,6 @@ ADB="/c/Users/Administrator/AppData/Local/Android/Sdk/platform-tools/adb.exe"
 | 某个现象当初怎么定位的、盘的事实、日志原文 | `history/iso-playback-chronicle.md` 甲(案例 A–H)/ 乙(缺陷 §14.x) |
 | seek / 倍速为什么这么定、哪些路被证伪 | 档案 丙(`§11.5–§11.10`) |
 | 多段盘与性能的实测数字 | 档案 丁(`§12.9`、`§13.x`) |
-| 想对照旧编号 / 旧措辞 | `文档/iso-playback-spec-20261019.md`(**存档快照,不再更新**,`文档/` 不进仓库) |
 | 播放器归属 / 挂摘 / 后台与通知 | `avbox-playback-service-spec.md` |
 | 通用规范、零注释、门禁、审查收敛 | `SKILL.md` |
 
@@ -283,3 +281,4 @@ ADB="/c/Users/Administrator/AppData/Local/Android/Sdk/platform-tools/adb.exe"
 | 2026-10-20 | **本文重写为 as-built 活规范**,并从 `文档/` 迁入 `skill/`:结论/约束/判据留本文,案例与取证迁 `history/iso-playback-chronicle.md`;文档地图登记 |
 | 2026-10-20 | 盘 J 的"4 秒卡死"修复:`PrimaryVideoExtractor` 延迟声明门 + 有数据即落地 + 按 stream type 的临时 Format(`ProvisionalFormatReader`);新增 `§4-C1..C3` 与 `§5` 的 #1–#3 |
 | 2026-10-20 | 诊断日志复核:确认无 per-sample 日志、落盘仅 debug;顺带修掉 `echo-progress-tick` 暴露的**进度回调自旋**(纯判定 `ProgressTickDelay`,下限 200ms)与 debug 日志**8MB 轮转**(`LOG.shouldRotateLog`);全量 **1287 通过 / 0 失败 / 3 跳过** |
+| 2026-10-20 | §9 对账(只改文档,不动代码):seek 两个疑点按真机复验(档案 §11.10)结案并删除;`#5`/`#6` 补 as-built 现状 —— 「有数据即落地」已覆盖大部分丢轨场景(缺的只是按载荷而非时长判死)、临时 Format 仍硬编码 `48k/6ch/2ch` 且 STN 只解 `pid+language`,避免被读成"完全空白" |

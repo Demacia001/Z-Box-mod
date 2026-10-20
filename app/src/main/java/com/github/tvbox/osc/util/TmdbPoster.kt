@@ -23,7 +23,7 @@ object TmdbPoster {
     private const val IMAGES_CACHE_PREFIX = "cache_tmdb_images_"
     private const val LOGOS_CACHE_PREFIX = "cache_tmdb_logos_"
     private const val DETAIL_CACHE_PREFIX = "cache_tmdb_detail2_"
-    private const val EPISODES_CACHE_PREFIX = "cache_tmdb_episodes_"
+    private const val EPISODES_CACHE_PREFIX = "cache_tmdb_episodes2_"
     private const val SEASON_CACHE_PREFIX = "cache_tmdb_season_"
     private const val STILLS_CACHE_PREFIX = "cache_tmdb_stills_"
     private const val PERSON_CACHE_PREFIX = "cache_tmdb_person_"
@@ -298,18 +298,9 @@ object TmdbPoster {
             return null
         }
         if (best.mediaType != TmdbApi.MEDIA_TV) {
-            val stills = ensureStills(best.mediaType, best.id)
-            if (stills.isEmpty()) {
-                LOG.i("echo-tmdb episodes skip q=$query reason=movie count=$episodeCount")
-                return null
-            }
-            val episodes = ArrayList<TmdbApi.TmdbEpisode>(episodeCount)
-            for (index in 0 until episodeCount) {
-                episodes.add(TmdbApi.TmdbEpisode("", stills[index % stills.size]))
-            }
-            LOG.i("echo-tmdb episodes movie=${best.id} count=$episodeCount stills=${stills.size}")
-            writeCached(key, gson.toJson(episodes, episodeListType))
-            return episodes
+            LOG.i("echo-tmdb episodes movie=${best.id} count=$episodeCount thumbs=off")
+            writeCached(key, "[]")
+            return emptyList()
         }
         val detail = ensureDetail(best.mediaType, best.id)
         if (detail == null) {

@@ -8,6 +8,7 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
@@ -52,6 +53,8 @@ private val CastItemWidth = 92.dp
 private val CastSheetAvatarSize = 96.dp
 
 private val CastSheetLoadingSize = 40.dp
+
+private const val CastSheetHeightFraction = 0.6f
 
 @Composable
 internal fun TmdbCastSection(name: String?, altName: String?, year: Int) {
@@ -214,6 +217,7 @@ private fun rememberCastPerson(id: Int): CastPersonState {
 private fun TmdbCastSheet(member: TmdbApi.TmdbCastMember, onDismiss: () -> Unit) {
     AVBoxBottomSheet(
         onDismissRequest = onDismiss,
+        modifier = Modifier.fillMaxHeight(CastSheetHeightFraction),
     ) {
         val state = rememberCastPerson(member.id)
         val person = (state as? CastPersonState.Ready)?.person

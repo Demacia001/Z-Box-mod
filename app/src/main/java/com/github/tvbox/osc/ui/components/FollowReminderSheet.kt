@@ -4,6 +4,7 @@ import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
@@ -37,6 +38,8 @@ private val ReminderHours = 0..23
 
 private val HourMenuMaxHeight = 280.dp
 
+private const val ReminderSheetHeightFraction = 0.6f
+
 @Composable
 fun FollowReminderSheet(
     initialDays: Set<Int>,
@@ -58,6 +61,7 @@ fun FollowReminderSheet(
     AVBoxBottomSheet(
         onDismissRequest = onDismissRequest,
         title = null,
+        modifier = Modifier.fillMaxHeight(ReminderSheetHeightFraction),
         headerContent = {
             Row(
                 verticalAlignment = Alignment.CenterVertically,
