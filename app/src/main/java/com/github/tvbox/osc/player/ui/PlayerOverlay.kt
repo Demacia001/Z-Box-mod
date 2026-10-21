@@ -84,7 +84,7 @@ fun PlayerOverlay(
         PlayerFadeVisibility(
             visible = state.loadingVisible && !state.tipVisible,
             enterMs = PLAYER_OSD_IN_MS,
-            exitMs = PLAYER_OSD_OUT_MS,
+            exitMs = if (state.tipVisible) 0 else PLAYER_OSD_OUT_MS,
         ) {
             PlayerLoadingLayer(state)
         }

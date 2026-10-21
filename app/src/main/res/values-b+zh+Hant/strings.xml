@@ -570,6 +570,8 @@
     <string name="thunder_error_parse">解析異常</string>
     <string name="thunder_error_download">下載出錯</string>
     <string name="thunder_error_timeout">解析下載逾時</string>
+    <string name="thunder_parsing">磁力解析中，請稍候</string>
+    <string name="thunder_parse_timeout">磁力解析逾時</string>
     <string name="thunder_error_name_too_long">檔名太長</string>
     <string name="thunder_error_path_too_long">檔案路徑太長</string>
     <string name="thunder_error_file_too_small">檔案太小</string>

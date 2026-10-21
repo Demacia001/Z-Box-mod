@@ -23,7 +23,6 @@ import com.github.tvbox.osc.util.KV
 import com.github.tvbox.osc.util.LOG
 import com.github.tvbox.osc.util.LanguageManager
 import com.github.tvbox.osc.util.Probe
-import com.p2p.P2PClass
 import com.whl.quickjs.android.QuickJSLoader
 
 import com.github.tvbox.osc.player.engine.PlayerCache
@@ -164,29 +163,11 @@ class App : Application() {
     companion object {
         private var instance: App? = null
 
-        private var p: P2PClass? = null
-
-        @JvmField
-        var burl: String? = null
-
         private var dashData: String? = null
 
         @JvmStatic
         fun getInstance(): App? {
             return instance
-        }
-
-        @JvmStatic
-        fun getp2p(): P2PClass? {
-            try {
-                if (p == null) {
-                    p = P2PClass(FileUtils.getExternalCachePath())
-                }
-                return p
-            } catch (e: Exception) {
-                LOG.e(e.toString())
-                return null
-            }
         }
     }
 }

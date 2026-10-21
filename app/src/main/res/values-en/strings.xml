@@ -570,6 +570,8 @@
     <string name="thunder_error_parse">Parsing failed</string>
     <string name="thunder_error_download">Download error</string>
     <string name="thunder_error_timeout">Download timed out</string>
+    <string name="thunder_parsing">Parsing magnet, please wait</string>
+    <string name="thunder_parse_timeout">Magnet parsing timed out</string>
     <string name="thunder_error_name_too_long">File name too long</string>
     <string name="thunder_error_path_too_long">File path too long</string>
     <string name="thunder_error_file_too_small">File too small</string>

@@ -129,6 +129,7 @@ class DetailActivity : BaseActivity(), PageHost {
                         container?.stopForExitFullscreen()
                     }
                     vm.onFullScreenToggleRequested(false, playbackFacts())
+                    container?.hideTipOnUiThread()
                 } else {
                     if (vm.backToPreviousTarget()) {
                         pendingEpisodeSync = false
@@ -155,6 +156,7 @@ class DetailActivity : BaseActivity(), PageHost {
         setIntent(intent)
         pendingEpisodeSync = false
         vm.onFullScreenToggleRequested(false, playbackFacts())
+        playContainer?.hideTipOnUiThread()
         vm.pushTargetFromIntent(intent)
     }
 

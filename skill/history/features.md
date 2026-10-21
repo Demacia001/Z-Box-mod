@@ -87,9 +87,9 @@
 | 6 个 `TYPE_*` | `RefreshEvent` | `TYPE_PUSH_URL/EPG_URL_CHANGE/SETTING_SEARCH_TV/FILTER_CHANGE/LIVE_API_URL_CHANGE/HOME_SOURCE_CHANGE` 全工程既无 post 也无订阅者；**保留常量的数值不动**（EventBus 按 int 分发），并在类注释里记下这些空洞编号避免复用 |
 | `minHeight` 形参 | `CapsuleSegmentedButton` | 2026-09-12 引入后，随着调用方改用 `SegmentStyle`（两段各自 40dp 天然高度），两个调用页都不再传 → 形参 + `heightIn` 调用 + `Dp` import 一并删除；段高下限仍由 M3 `ToggleButton` 自带 |
 
-**刻意保留（扫描命中但绝不能删）** —— 这三类占了"疑似死代码"的绝大多数：
+**刻意保留（扫描命中但绝不能删）** —— 以下三类占了"疑似死代码"的绝大多数；**其中第 1 类已于 2026-10-21 整条移除，仅存历史**：
 
-1. **JNI/native 桥**：`com.p2p.P2PClass` 全部 ~23 个 `P2P*`/`xGFilm*` 方法 —— 由 `libp2p.so` 反向调用，源码里必然"零引用"。
+1. **JNI/native 桥**：`com.p2p.P2PClass` 全部 ~23 个 `P2P*`/`xGFilm*` 方法 —— 由 `libp2p.so` 反向调用，源码里必然"零引用"。**⚠ 已于 2026-10-21 整条移除**（按上游 fongmi 做法删除见片：`libp2p.so` + `P2PClass` + `Jianpian` + 4 处调用点）；本条不再适用，勿再当作"零引用不可删"的依据。
 2. **JS 爬虫 API**：`com.github.catvod.crawler.js.*`（`Global.pdfh/pdfa/rsaX/js2Proxy`、`Json.safeListElement`、`Res.getCode`、`rsa/RSAEncrypt` 等）—— 由 JS 脚本通过 `JsSpider` 注册的全局对象调用；`proguard-rules.pro:208` 有 `-keep class com.github.catvod.**`。这正是 spec §6.3「依赖裁剪不得只看宿主源码静态引用」的例子。
 3. **接口/框架回调**：DLNA 的 `remoteDeviceAdded/onServiceConnected/createStreamServer…`、`Service.onBind/onStartCommand`、`TimedTextFileFormat.toSRT/toASS/…`、OkHttp `Authenticator.authenticate`、`SSLSocketFactory.getDefaultCipherSuites`、Gson `ExclusionStrategy.shouldSkipField`、弹幕 `danmakuShown/drawingFinished` 等 —— 都由框架按接口调用。
 

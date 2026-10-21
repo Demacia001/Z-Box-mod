@@ -21,6 +21,7 @@ import com.github.tvbox.osc.sourcedata.SourceViewModel
 import com.github.tvbox.osc.util.HistoryHelper
 import com.github.tvbox.osc.util.LOG
 import com.github.tvbox.osc.util.LanguageManager
+import com.github.tvbox.osc.util.thunder.Thunder
 import java.util.Locale
 import java.util.concurrent.ConcurrentHashMap
 import kotlinx.coroutines.CompletableDeferred
@@ -232,6 +233,7 @@ class DetailViewModel : ViewModel() {
         }
         val next = DetailFullScreenSlide.exit(slideState()) ?: return
         applySlideState(next)
+        Thunder.cancelPendingParse()
         rotating.value = DetailPlaybackCommands.exitFullScreenState(facts).second
     }
 
@@ -395,6 +397,9 @@ class DetailViewModel : ViewModel() {
             if (mVideo.pic.isNullOrEmpty() && vodPicture.isNotEmpty()) {
                 mVideo.pic = vodPicture
             }
+            val keep = vodInfo?.takeIf { it.sourceKey == mVideo.sourceKey }
+            val keepFlag = keep?.playFlag
+            val keepIndex = keep?.playIndex
             val info = VodInfo()
             info.setVideo(mVideo)
             info.sourceKey = mVideo.sourceKey
@@ -421,6 +426,10 @@ class DetailViewModel : ViewModel() {
                 if (info.reverseSort) info.reverse()
                 if (info.playFlag == null || info.seriesMap?.containsKey(info.playFlag) != true) {
                     info.playFlag = info.seriesMap?.keys?.firstOrNull()
+                }
+                if (keepFlag != null && info.seriesMap?.containsKey(keepFlag) == true) {
+                    info.playFlag = keepFlag
+                    info.playIndex = (keepIndex ?: 0).coerceIn(0, (info.seriesMap?.get(keepFlag)?.size ?: 1) - 1)
                 }
                 restoreFallbackEpisode(info)
                 resetEngineState(keepChips = true)
@@ -572,6 +581,7 @@ class DetailViewModel : ViewModel() {
 
     fun switchSource(video: Movie.Video) {
         stopPlaybackForSwitch()
+        captureFallbackEpisode()
         usedSourceKeys.add(video.sourceKey.orEmpty())
         vodName = video.name ?: vodName
         vodPicture = video.pic ?: vodPicture
@@ -755,6 +765,7 @@ class DetailViewModel : ViewModel() {
         cancelDetailTimeout()
         sourceViewModel.cancelDetail()
         searchCaller.cancelSearch()
+        Thunder.cancelPendingParse()
     }
 
     private fun candidateKey(video: Movie.Video): String =

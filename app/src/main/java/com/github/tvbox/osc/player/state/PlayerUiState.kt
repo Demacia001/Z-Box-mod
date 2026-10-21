@@ -132,7 +132,7 @@ class PlayerUiState {
         get() = controlsVisible && !loadingVisible && !tipVisible && !locked
 
     val netSpeedCenterVisible: Boolean
-        get() = playState == PlayState.IDLE
+        get() = playState == PlayState.IDLE && !previewMode
 }
 
 enum class LockVisibility { GONE, HIDDEN, SHOWN }

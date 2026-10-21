@@ -145,6 +145,8 @@ class PushDetailResolver(private val gson: Gson, private val detailResult: Sourc
                 }
                 if (hasThunder) {
                     thunderParse = true
+                    LOG.i("echo-detail-prerender key=" + data.sourceKey)
+                    detailResult.postValue(data)
                     Thunder.parse(requireNotNull(App.getInstance()) { "app instance not ready" }, video.urlBean, object : Thunder.ThunderCallback {
                         override fun status(code: Int, info: String) {
                             if (code >= 0) {

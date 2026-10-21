@@ -18,7 +18,6 @@ import com.github.tvbox.osc.util.ImgUtil
 import com.github.tvbox.osc.util.KV
 import com.github.tvbox.osc.util.LOG
 import com.github.tvbox.osc.util.MD5
-import com.github.tvbox.osc.util.thunder.Jianpian
 import com.github.tvbox.osc.util.thunder.Thunder
 import org.greenrobot.eventbus.EventBus
 import org.json.JSONException
@@ -209,16 +208,8 @@ class PlaybackStarter(private val host: Host) {
         }
 
         val seriesUrl = requireNotNull(vs.url)
-        if (Jianpian.isJpUrl(seriesUrl)) {
-            host.view()?.showParse(false)
-            if (seriesUrl.startsWith("tvbox-xg:")) {
-                playUrl(requireNotNull(Jianpian.JPUrlDec(seriesUrl.substring(9))), null)
-            } else {
-                playUrl(requireNotNull(Jianpian.JPUrlDec(seriesUrl)), null)
-            }
-            return
-        }
         val thunderGen = host.resolverCurrentGen()
+        val magnetPending = Thunder.isMagnetUrl(seriesUrl)
         if (Thunder.play(seriesUrl, object : Thunder.ThunderCallback {
                 override fun status(code: Int, info: String) {
                     host.view()?.showTip(info, code >= 0, code < 0)
@@ -233,6 +224,10 @@ class PlaybackStarter(private val host: Host) {
             })
         ) {
             host.view()?.showParse(false)
+            if (magnetPending && !prepareOnly) {
+                host.cancelPlayTimeout()
+                host.view()?.showTip(PlaybackController.str(R.string.thunder_parsing), true, false)
+            }
             return
         }
 

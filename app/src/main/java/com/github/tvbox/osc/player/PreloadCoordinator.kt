@@ -14,7 +14,6 @@ import com.github.tvbox.osc.util.HistoryHelper
 import com.github.tvbox.osc.util.KV
 import com.github.tvbox.osc.util.LOG
 import com.github.tvbox.osc.util.MD5
-import com.github.tvbox.osc.util.thunder.Jianpian
 import java.util.concurrent.atomic.AtomicBoolean
 import org.json.JSONArray
 import org.json.JSONObject
@@ -136,10 +135,6 @@ class PreloadCoordinator(
             return
         }
         val nextUrl = requireNotNull(snapshot.nextUrl)
-        if (Jianpian.isJpUrl(nextUrl)) {
-            gaveUp(snapshot)
-            return
-        }
         activeSnapshot = snapshot
         requestToken = snapshot.nextKey + PRELOAD_KEY_SUFFIX
         LOG.i("echo-preload-resolve: " + nextUrl)
@@ -181,8 +176,7 @@ class PreloadCoordinator(
         if (parse || jx || playUrl.isNotEmpty() || msg.isNotEmpty() ||
             url.isEmpty() ||
             url.startsWith("[") ||
-            url.startsWith("data:application") ||
-            url.startsWith("tvbox-xg:")
+            url.startsWith("data:application")
         ) {
             val reason = if (parse) {
                 "parse=1"
@@ -196,10 +190,8 @@ class PreloadCoordinator(
                 "empty url"
             } else if (url.startsWith("[")) {
                 "array url"
-            } else if (url.startsWith("data:application")) {
-                "data: url"
             } else {
-                "tvbox-xg"
+                "data: url"
             }
             LOG.i("echo-preload-giveup: " + reason)
             gaveUp(snapshot)

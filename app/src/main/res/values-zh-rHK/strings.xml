@@ -39,6 +39,8 @@
     <string name="player_getting_info">正在獲取播放資訊</string>
     <string name="player_play_url_empty">獲取播放地址為空</string>
     <string name="thunder_error_timeout">解析下載超時</string>
+    <string name="thunder_parsing">磁力解析中，請稍候</string>
+    <string name="thunder_parse_timeout">磁力解析逾時</string>
     <string name="dialog_api_url_hint">請輸入 API 地址</string>
     <string name="live_repo_entry_not_deletable">倉庫列表來自倉庫地址，不能單獨刪除</string>
     <string name="settings_search_threads">搜尋線程</string>
