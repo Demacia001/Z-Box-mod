@@ -30,6 +30,7 @@ import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.DpSize
 import androidx.compose.ui.unit.dp
 import com.github.tvbox.osc.ui.theme.cardContainer
+import com.kyant.capsule.ContinuousRoundedRectangle
 
 private val MockupScaleBase = 480.dp
 
@@ -61,6 +62,8 @@ private val MockupPadding = 10.dp
 
 private val MockupCorner = 26.dp
 
+private val MockupShape = ContinuousRoundedRectangle(MockupCorner)
+
 private val SourcePillWidth = 70.dp
 
 private val SourcePillHeight = 16.dp
@@ -71,7 +74,9 @@ private val SourcePillTextWidth = 28.dp
 
 private val SourcePillTextHeight = 5.dp
 
-private val TopIconSize = 16.dp
+private val TopCapsuleWidth = 26.dp
+
+private val TopCapsuleHeight = 16.dp
 
 private val TopGap = 8.dp
 
@@ -109,13 +114,7 @@ private val NavSlotGap = 2.dp
 
 private val NavIconSize = 9.dp
 
-private val NavLabelWidth = 13.dp
-
-private val NavLabelHeight = 4.dp
-
 private val NavShadow = 4.dp
-
-private const val NavSelectedWeight = 1.5f
 
 @Composable
 fun PhoneMockupPreview(modifier: Modifier = Modifier) {
@@ -153,7 +152,7 @@ private fun PhoneMockupBody(
         modifier = modifier
             .width(frame.width)
             .height(frame.height),
-        shape = RoundedCornerShape(MockupCorner),
+        shape = MockupShape,
         color = scheme.surfaceContainer,
         border = BorderStroke(1.dp, scheme.outlineVariant),
     ) {
@@ -188,14 +187,12 @@ private fun PhoneMockupBody(
                         }
                     }
                     Spacer(Modifier.weight(1f))
-                    repeat(2) { index ->
-                        if (index > 0) Spacer(Modifier.width(4.dp))
-                        Box(
-                            modifier = Modifier
-                                .size(TopIconSize)
-                                .background(cardColor, CircleShape),
-                        )
-                    }
+                    Box(
+                        modifier = Modifier
+                            .width(TopCapsuleWidth)
+                            .height(TopCapsuleHeight)
+                            .background(cardColor, CircleShape),
+                    )
                 }
                 Spacer(Modifier.height(TopGap))
                 Row(
@@ -269,25 +266,16 @@ private fun PhoneMockupBody(
             ) {
                 Box(
                     modifier = Modifier
-                        .weight(NavSelectedWeight)
+                        .weight(1f)
                         .height(NavSlotHeight)
                         .background(scheme.primaryContainer, CircleShape),
                     contentAlignment = Alignment.Center,
                 ) {
-                    Row(verticalAlignment = Alignment.CenterVertically) {
-                        Box(
-                            modifier = Modifier
-                                .size(NavIconSize)
-                                .background(scheme.onPrimaryContainer, CircleShape),
-                        )
-                        Spacer(Modifier.width(3.dp))
-                        Box(
-                            modifier = Modifier
-                                .width(NavLabelWidth)
-                                .height(NavLabelHeight)
-                                .background(scheme.onPrimaryContainer.copy(alpha = 0.7f), CircleShape),
-                        )
-                    }
+                    Box(
+                        modifier = Modifier
+                            .size(NavIconSize)
+                            .background(scheme.onPrimaryContainer, CircleShape),
+                    )
                 }
                 repeat(3) {
                     Box(

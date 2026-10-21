@@ -25,17 +25,19 @@ internal object IsoPrepare {
         key: String,
         locator: IsoLocator,
         selection: IsoSelection,
-        snapshot: ByteArray?,
+        snapshot: (() -> ByteArray?)?,
     ) {
         if (scheduled.putIfAbsent(key, true) != null) return
         val mine = token
         val clips = selection.segments.map { it.name }.distinct()
         executor.execute {
-            if (!awaitTurn(mine)) return@execute
-            if (snapshot != null) {
-                val bytes = IsoDiskCache.saveBytes(key, snapshot)
-                if (bytes > 0) LOG.i("echo-iso-cache-save:$bytes")
+            if (mine != token) return@execute
+            val bytes = snapshot?.invoke()
+            if (bytes != null) {
+                val written = IsoDiskCache.saveBytes(key, bytes)
+                if (written > 0) LOG.i("echo-iso-cache-save:$written")
             }
+            if (!awaitTurn(mine)) return@execute
             val started = System.currentTimeMillis()
             var ready = 0
             for (name in clips) {

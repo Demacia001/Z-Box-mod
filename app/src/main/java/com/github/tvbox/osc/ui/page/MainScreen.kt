@@ -379,7 +379,6 @@ private fun MainContent() {
                     } else {
                         Modifier
                             .align(Alignment.CenterStart)
-                            .fillMaxHeight()
                             .windowInsetsPadding(WindowInsets.systemBars)
                             .padding(vertical = 16.dp)
                             .padding(start = NavMetrics.MARGIN_DP.dp)

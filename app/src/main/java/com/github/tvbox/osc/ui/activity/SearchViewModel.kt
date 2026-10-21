@@ -70,6 +70,8 @@ class SearchViewModel(initialTitle: String? = null) : ViewModel() {
 
         private const val HOT_SEARCH_LIMIT = 20
 
+        private const val DOUBAN_REFERER = "https://movie.douban.com/"
+
         private const val SUGGEST_URL = "https://suggest.video.iqiyi.com/?if=mobile&key="
 
         private const val SUGGEST_LIMIT = 20
@@ -140,19 +142,24 @@ class SearchViewModel(initialTitle: String? = null) : ViewModel() {
                 .format(java.util.Date())
             val cached = KV.get(HawkConfig.HOME_HOT, "")
             if (KV.get(HawkConfig.HOME_HOT_DAY, "") == today && cached.isNotEmpty()) {
-                hotSearch.value = parseHotTitles(cached)
-                return@launch
+                val titles = parseHotTitles(cached)
+                if (titles.isNotEmpty()) {
+                    hotSearch.value = titles
+                    return@launch
+                }
             }
             val year = java.util.Calendar.getInstance().get(java.util.Calendar.YEAR)
             try {
                 val body = Http.get(DOUBAN_HOT_URL + year + "," + year) {
                     headers("User-Agent", UA.random())
+                    headers("Referer", DOUBAN_REFERER)
                 }
-                if (body.isNotEmpty()) {
+                val titles = parseHotTitles(body)
+                if (titles.isNotEmpty()) {
                     KV.put(HawkConfig.HOME_HOT, body)
                     KV.put(HawkConfig.HOME_HOT_DAY, today)
                 }
-                hotSearch.value = parseHotTitles(body)
+                hotSearch.value = titles
             } catch (e: CancellationException) {
                 throw e
             } catch (_: Exception) {

@@ -11,6 +11,7 @@ import androidx.media3.extractor.ts.ElementaryStreamReader
 import androidx.media3.extractor.ts.PesReader
 import androidx.media3.extractor.ts.TsPayloadReader
 import com.github.tvbox.osc.util.LOG
+import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.atomic.AtomicBoolean
 
 class BdTsPayloadReaderFactory(
@@ -24,6 +25,7 @@ class BdTsPayloadReaderFactory(
     private val defaults = DefaultTsPayloadReaderFactory(flags)
     private val trueHdLogged = AtomicBoolean(false)
     private val dtsLogged = AtomicBoolean(false)
+    private val unmappedLogged = ConcurrentHashMap.newKeySet<Int>()
 
     private val hdmvDtsEnabled: Boolean
         get() = (flags and DefaultTsPayloadReaderFactory.FLAG_ENABLE_HDMV_DTS_AUDIO_STREAMS) != 0
@@ -54,8 +56,16 @@ class BdTsPayloadReaderFactory(
             STREAM_TYPE_DTS -> if (hdmvDtsEnabled) dtsReader(streamType, esInfo) else null
             STREAM_TYPE_DTS_HD, STREAM_TYPE_DTS_HD_MA -> dtsCoreReader(streamType, esInfo)
             STREAM_TYPE_PGS -> if (pgsEnabled()) wrap(PgsReader(esInfo.language)) else null
-            else -> defaults.createPayloadReader(streamType, esInfo)
+            else -> unmapped(streamType, esInfo)
         }
+
+    private fun unmapped(streamType: Int, esInfo: TsPayloadReader.EsInfo): TsPayloadReader? {
+        val reader = defaults.createPayloadReader(streamType, esInfo)
+        if (reader == null && unmappedLogged.add(streamType)) {
+            LOG.i("echo-iso-stream-unmapped:$streamType:lang=${esInfo.language}")
+        }
+        return reader
+    }
 
     private fun dtsReader(streamType: Int, esInfo: TsPayloadReader.EsInfo): TsPayloadReader {
         if (dtsLogged.compareAndSet(false, true)) {

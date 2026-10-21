@@ -61,6 +61,7 @@ MediaSources.createIsoMediaSource(uri, headers, seekMs)
 | 裸 192B BDAV | `BdavDataSource` + `retryAsBdav` | 首轮解析失败 → 64KB 结构判据(192 对齐 + PMT/PES)→ 命中即 `IsoSessionSignal.markEscalated()` |
 | 音乐页拦截 | `MusicPlayerActivity.isIsoSession/bailIsoSession` | ISO/bdav 内容**禁止**进音乐页(打 `echo-iso-music-bail`,Toast 后回详情页) |
 | 45s 窗口续期 | `PlaybackRetryDelegate` | 迟到 ISO 会话(`IsoSessionSignal.escalated()`)首次超时把窗口重算 45s |
+| 源能力闸门 | `IsoResolver.readProbe` | `Accept-Ranges: none` ⇒ `markStub` + `range unsupported`,不进入解析(UI 走「该线路返回的资源不完整」);其余只记 `mode=206/200`(§4-C14) |
 
 ## 3. 模块地图(as-built)
 
@@ -68,9 +69,9 @@ MediaSources.createIsoMediaSource(uri, headers, seekMs)
 
 | 文件 | 职责 | 维护要点 |
 |---|---|---|
-| `UdfVolume.kt` | 卷识别 / 分区映射 / 目录遍历 / 读文件 | 卷识别按 ECMA-167 扫**描述符序列**;`physical`/`metadata` 两种映射 |
+| `UdfVolume.kt` | 卷识别 / 分区映射 / 目录遍历 / 读文件 | 卷识别按 ECMA-167 扫**描述符序列**;`physical`/`metadata` 两种映射;目录项 FE **必须串行读**(并发实测判负,§13.13) |
 | `UdfParser.kt` / `UdfFormat.kt` | File Entry、`short_ad`/`long_ad`、`decodeDString` | 派生缓存带**解析器版本** |
-| `IsoLocator.kt` | 定位 `BDMV/STREAM`、选 m2ts、合并相邻 run | 碎片文件多 run |
+| `IsoLocator.kt` | 定位 `BDMV/STREAM`、选 m2ts、合并相邻 run、批量读+解析 mpls | 碎片文件多 run;mpls 走 `IsoMplsFetch`(并发 4 + 12s 整体超时,**读与解析在同一个任务里**,失败退化为串行重试一次);内联条目与单条 mpls 仍走调用线程;BDMV 允许套**一层**包装目录(`bdmvEntry` 懒定位,`locateSelection` 与 `loadClipIndex` 共用) |
 | `MplPlaylist.kt` | mpls `STN_table` + play item 解析、选片、流去重 | 选片按**去重时长**;语言在 STN |
 | `IsoDataSource.kt` | ISO 层 DataSource(HTTP Range 之上)+ 探测与解析编排 | 会话开始时 `IsoThroughput.beginSession()` |
 | `M2tsDataSource.kt` | 192→188 剥 ATS、逻辑↔物理映射、多 run | 属性测试覆盖(`M2tsDataSourceTest`) |
@@ -88,10 +89,10 @@ MediaSources.createIsoMediaSource(uri, headers, seekMs)
 | `IsoThroughput.kt` / `IsoBandwidthGuard.kt` | 4s 窗口吞吐 / 带宽判定 | 见 §1 |
 | `IsoDiskCache.kt` | 目录快照落盘(`filesDir/iso-volume`) | key=总长+前4KB指纹;版本号参与 key;见 §8-D9 |
 | `ClpiIndex.kt` | `*.clpi` RAP 索引 | seek/RAP 起播用 |
-| `IsoPrepare.kt` | 后台预取 clpi(6s 延迟) | 不阻塞起播 |
+| `IsoPrepare.kt` | 后台构建/落盘目录快照 + 预取 clpi(6s 延迟) | 快照构建必须在后台线程,不得回到 `IsoResolver.parse()` 的同步路径(884ms,§13.9) |
 | `BdavDataSource.kt` | 裸 192B BDAV 探测 + 复用 `M2tsStream` | stub <1MB 快速失败 |
 | `IsoSessionSignal.kt` | 引擎 → 控制器的迟到会话信号 | 一次性 |
-| `IsoFileSource.kt` / `IsoResolver.kt` / `IsoSettings.kt` / `RangeBlockReader.kt` | 源解析 / 开关 / 测试接缝 | `RangeBlockReader` 是主要测试替身 |
+| `IsoFileSource.kt` / `IsoResolver.kt` / `IsoSettings.kt` / `RangeBlockReader.kt` | 源解析 / 开关 / 测试接缝 | `RangeBlockReader` 是主要测试替身;probe 的镜像总长只认 `Content-Range`(C14) |
 
 接线点(ISO 相关):
 
@@ -153,6 +154,9 @@ DV 双层盘的 PMT 同时有主层(3840×2160)和增强层(1920×1088),`Primary
 **C13 — 解码失败必须分清是音频轨还是视频轨。**
 `ERROR_CODE_DECOD…` 只说明"某个渲染器解码失败",不含轨类型。把它一律当"视频硬解失败"会:①弹错误的提示(`player_decode_fallback_tip`);②把**视频**切成软解(4K 反而更糟);③掩盖真正问题(2026-10-20 的实例是**音频** `FfmpegAudioRenderer` 解不了 `audio/vnd.dts.hd`)。判据:失败音频轨→只换音轨(`echo-autoRetry audio track fallback:<pid>` + `echo-iso-audio-skip:<pid>`),视频解码设置一个字节都不动。
 
+**C14 — `DataSource.open()` 返回的是「本次可读字节数」,不是镜像总长。**
+镜像总长只能从 `Content-Range: bytes a-b/total` 的 `total` 取;只有 `200 + Content-Length = 完整长度` 时,`open()` 的返回值才等于总长。分块代理(实测某网盘代理对**不带 Range** 的请求也回 `206`,body 只给 1024 字节)会让这个值缩小三个数量级,直接撞 `UdfVolume` 的 64KB 闸门,表现为 `echo-iso-error:image too small`。判据:`echo-iso-probe` 里 `open != total`。见档案 §14.14。
+
 ## 5. 已知坑与判据
 
 > 每条:现象 → 根因 → 判据。完整解剖见档案对应节。
@@ -175,6 +179,8 @@ DV 双层盘的 PMT 同时有主层(3840×2160)和增强层(1920×1088),`Primary
 | 14 | 黑屏无声、进度条正常 | 诱饵指向 MPEG-2 菜单素材,设备无 MPEG-2 解码器,media3 不报错 | `echo-exo-selector: mime=video/mpeg2 count=0` | 档案 §4.6 |
 | 15 | 4K 盘 `NO_EXCEEDS_CAPABILITIES` | 模拟器只到 ProfileMain,不是误报 | `echo-exo-codec-init: kind=SOFTWARE` + Format 尺寸 | §14.8 |
 | 16 | 弹「硬解失败,已切换软解」但视频明明是硬解 | 音频轨解码失败被当成视频硬解失败(C13) | `echo-exo-player-error` 的 `msg=FfmpegAudioRenderer error` + `format=…audio/vnd.dts.hd` | §13.7 |
+| 17 | 42GB 盘 0.7s 就报「视频播放出错」,日志只有 `image too small` | probe 把 `open()` 返回的 1024 当成镜像总长(C14) | `echo-iso-probe:open=1024:total=45098467328`;正常盘 `open == total` | §14.14 |
+| 18 | 一直缓冲(约 20s)后报「视频播放出错」,日志只有 `BDMV directory missing` | 压片组把 BDMV 连同海报塞进片名文件夹再打包,BDMV 不在 ISO 根下 | `echo-iso-root:count=…` 里第一项是个目录、没有 `BDMV`;修复后出现 `echo-iso-bdmv:nested=<dir>` | §14.15 |
 
 ## 6. 运维:拉日志 / 复现
 
@@ -208,7 +214,7 @@ ADB="/c/Users/Administrator/AppData/Local/Android/Sdk/platform-tools/adb.exe"
 | `echo-iso-audio-format:<id>:<mime>:ch=` | 实际选中并送解码的音轨格式(每条变更一次),音频类问题先看它 |
 | `echo-iso-audio-skip:<pid>` | 该音轨被拉黑后不再声明(`IsoAudioFallback`,音频解码失败后自动切换的落地) |
 | `echo-iso-m2ts:count/…:chosen` | 盘内 m2ts 与选中项(多段盘判据) |
-| `echo-iso-mpls:…:chosen=…:duration=…:unique=…:top=…` | 播放列表盘点;`duration != unique` = 重复段 |
+| `echo-iso-mpls:…:chosen=…:duration=…:unique=…:top=…` | 播放列表盘点;`duration != unique` = 重复段;末尾 `:fetch=<ms>` 是这批 mpls 的读+解析耗时(并发 4) |
 | `echo-iso-playlist:…:segments/unique/total` / `-append` | 选片结果与跨段追加 |
 | `echo-iso-streams:<pid>:<lang>,…` | STN 读到的语言表 |
 | `echo-iso-stream-lang:<n>` | 本次会话发布的 `pid→语言` 条数。`IsoResolver.resolve()` 每次都会打(含命中 `IsoVolumeCache`);**坏会话里它缺失** = 语言表没重建 |
@@ -224,6 +230,14 @@ ADB="/c/Users/Administrator/AppData/Local/Android/Sdk/platform-tools/adb.exe"
 | `echo-iso-bandwidth*` / `echo-iso-bdav-*` | 带宽判定 / BDAV 探测与升级 |
 | `echo-exo-selector` / `echo-exo-codec-init` | 解码器候选与实选;`kind=SOFTWARE` 播 4K Main10 必失败 |
 | `echo-iso-error:<msg>` | 解析/定位失败;`volume recognition missing` ≠ 文件不是 ISO |
+| `echo-iso-probe:open=…:total=…:mode=…:Content-Type=…` | 起播探测:本次可读 vs 真实总长。`open != total` = 上游自带分块(总长取自 `Content-Range`);`mode=206/200/range-none` 是源能力,`range-none` 会直接失败并给「该线路返回的资源不完整」 |
+| `echo-iso-probe-head:<16 字节 hex>` | 探测到的首 16 字节;BD 盘前 4KB 常为全零,不代表盘坏 |
+| `echo-iso-truncated:<pos>:<remaining>` | **上游提前 EOF**(不是本次读长度用尽):表现为「播到一半停住/直接结束」,出现即源侧截断,不是容器问题 |
+| `echo-iso-stream-unmapped:<stream_type>:<lang>` | PMT 声明了但我们和 media3 都没有 reader 的流(如 `0xA1` 从属音频、`0xEA` VC-1);该轨被静默丢弃,菜单里不会出现 |
+| `echo-iso-root:count=…:名字:长度:是否目录,…` | BDMV 找不到时打印根目录前 12 项;一眼分辨「盘里真没有」与「套了一层文件夹」 |
+| `echo-iso-bdmv:nested=<dir>` | 命中的 BDMV 在一个包装目录里(不在根);快照已支持这种形态(§13.13) |
+| `echo-iso-volume-key:<key 后 12 位>:<firstBytes 长度>` | 每次会话算出的快照指纹;`firstBytes` 长度必须是 4096,两次不一致就会导致快照永远不命中 |
+| `echo-iso-cache-miss:<文件名后 20 位>:<文件长度>` / `echo-iso-cache-nodir` | 快照文件对不上/长度越界/取不到目录;排查「快照明明写了却不命中」先看这两条 |
 
 ## 7. 走查清单(编号稳定)
 
@@ -277,6 +291,8 @@ ADB="/c/Users/Administrator/AppData/Local/Android/Sdk/platform-tools/adb.exe"
 
 | 12 | 字幕菜单全是"字幕1/2/3…"、没有中英文;音频那边也丢语言 | **已结(2026-10-20 23:37 真机复验)**。根因(2026-10-20 真机日志锁定):`IsoVolumeCache` 命中时跳过 `locateSelection()`,于是 `publishStreams()` 不执行,而 `reset()` 已经把表清空。所以是**首次冷进正常、退出重进 / 10 分钟内重播必坏**,不是概率问题。判据:坏会话**没有** `echo-iso-stream-lang`,且 `subtitle-list` 的名字退回 `字幕N PGS`(临时加的 per-track `echo-iso-lang` 已于同轮移除,见 §11 末行)。修法见 `§8-D11`;回归用例 `IsoResolverTest.resolve_republishesStreamLanguagesOnCacheHit`。**复验**:同一张盘第二次 prepare(23:37:29.391,`IsoVolumeCache` 命中,580ms 内出表)→ `echo-iso-stream-lang:count=25` → 25 条轨全部 `lang=eng/deu/spa/fra/zho/nor/por/fin/swe/jpn`,`lang=-` **0 条**;字幕列表恢复 `字幕1 - 英语 PGS … 字幕15 - 日语 PGS`。对照修复前同一路径(23:30:39)25 条轨全是 `lang=-` |
 
+| 13 | ISO 起播剩余耗时:probe 补读 0.49s(改一次 Range 请求)、clpi 索引 0.64s(尝试与轨道声明并行) | **未开工**;mpls 并发已完成(档案 §13.11),基础时间线见档案 §13.9 |
+
 ## 10. 档案索引
 
 | 想知道什么 | 去哪 |
@@ -306,4 +322,11 @@ ADB="/c/Users/Administrator/AppData/Local/Android/Sdk/platform-tools/adb.exe"
 | 2026-10-20 | **目录快照迁到 `filesDir/iso-volume`**(原 `cacheDir` 会被系统低存储回收、系统设置/应用信息里的"清除缓存"清掉 = 白丢 3.09s 起播收益)。策略见 `§8-D9`:**应用内「清除缓存」改为显式清它**(`SettingsViewModel.clearCache()` → `IsoDiskCache.clear()`)并把 ≤8MB 计入显示的大小(`bytesOnDisk()`);旧位置首次访问整目录删除(`echo-iso-cache-legacy-drop`)。顺带修正 §3 对该文件的错误描述(它不碰 clpi),并把"前 4KB 实测全零 ⇒ 键只剩总长"记入 `§9-10`;全量 **1302 通过 / 0 失败 / 3 跳过** |
 | 2026-10-20 | **音频解码失败不再冒充"硬解失败"**(`§4-C13`、`§8-D10`、`§5` #16):`PlayerEngine` 记录失败轨类型(`classifyTrackKind`),音频失败只换音轨 —— 新增 `IsoAudioFallback`(按内容拉黑 PID)+ `PrimaryVideoExtractor` 的 `suppressedAudio` 出口 + `echo-iso-audio-format` / `echo-iso-audio-skip` 两条日志 + 文案 `player_audio_track_fallback_tip`;`audio/vnd.dts.hd` 本身仍解不了,记入 `§9-11`;全量 **1313 通过 / 0 失败 / 3 跳过** |
 | 2026-10-20 | 真机复现确认为**轨中途升级**成 `dts.hd`(不是续播落点);按 A 方案落地 `DtsCoreReader`:`0x85/0x86` 只送 DTS core、跳过 EXTSS,mime 恒 `audio/vnd.dts`(`§9-11` 转"待真机验证");新增 `DtsCoreReaderTest` 4 例;全量 **1317 通过 / 0 失败 / 3 跳过**
-| 2026-10-20 | `DtsCoreReader` **真机复验通过**(23:22,同一续播点):`dts-hd:…:core=1` → `dts-core:ch=6:rate=48000` → `audio/vnd.dts` 全程稳定,`PLAYING hasAudio=true`,无 `player-error` / 无换轨;`§9-11` 结案 ||
+| 2026-10-20 | `DtsCoreReader` **真机复验通过**(23:22,同一续播点):`dts-hd:…:core=1` → `dts-core:ch=6:rate=48000` → `audio/vnd.dts` 全程稳定,`PLAYING hasAudio=true`,无 `player-error` / 无换轨;`§9-11` 结案 |
+| 2026-10-22 | **修复分块代理下起播必失败**(`§4-C14`、`§5` #17、档案 §14.14):`readProbe` 原先把 `DataSource.open()` 返回值当镜像总长,而该源对**无 Range** 请求也回 `206 + Content-Range: bytes 0-1023/45098467328`(body 仅 1024 字节)⇒ 1024 撞 UDF 64KB 闸门报 `image too small`。总长改从 `Content-Range` 的 `total` 取、回落 `open()`;首 4KB 不足时用一次带 Range 的 `DataSourceRangeReader` 补齐(指纹口径仍 4KB);probe 阶段的 `IsoFormatException` 也落 `echo-iso-error`;新增 `echo-iso-probe` / `echo-iso-probe-head` 两条常驻判据日志与 `IsoProbeLengthTest`(7 例)。全量 **1333 通过 / 0 失败 / 3 跳过** |
+| 2026-10-22 | **目录快照构建移出起播路径**(884ms):`IsoPrepare.schedule` 的第 4 参由 `ByteArray?` 改为 `(() -> ByteArray?)?`,`buildSnapshot` 与落盘都在 `iso-prepare` 线程执行(排在 clpi 预取之前,不受 6s 延迟约束);`IsoResolverTest` 的读计数排除 `iso-prepare` 线程以保住 single-flight 断言。起播拆解:首次 **12.08s**(mpls 34 个串行 3.42s + UDF 2.66s + 快照 0.88s + 软解首帧 2.90s)→ 快照命中 **4.74s**;`§9` 补第 13 项剩余优化,数据见档案 §13.9 |
+| 2026-10-22 | **兼容性判据补强**(只加日志 + 一处前置失败,不动解析逻辑;档案 §13.10):①`M2tsStream` 区分「本次读长度用尽」与「上游提前 EOF」,后者打 `echo-iso-truncated`——此前截断被当正常结尾,现象是「播一半停住」且日志无错;②`BdTsPayloadReaderFactory` 对 media3 也不认识的 `stream_type` 打 `echo-iso-stream-unmapped`——此前静默丢轨,菜单少一条轨没有任何痕迹;③probe 行补 `mode=206/200/range-none`,并在 `Accept-Ranges: none` 时 `markStub` + 抛 `range unsupported`,让「源不支持随机读」落到「该线路返回的资源不完整」文案,而不是撞 UDF 的 `image too small`;`IsoProbeLengthTest` 7 → 9 例,全量 **1335 通过 / 0 失败 / 3 跳过** |
+| 2026-10-22 | **支持 BDMV 套一层包装目录**(`§5` #18、档案 §14.15):压片组常把 `BDMV` 连同海报/简介塞进片名文件夹再打成 ISO,根下直接 `find(BDMV)` 会报 `BDMV directory missing`,表现是「缓冲约 20s 后视频播放出错」。`IsoLocator` 增加 `bdmvEntry`(lazy):根下没有就遍历第一层子目录找,命中打 `echo-iso-bdmv:nested=<dir>`;`loadClipIndex` 同时改为共用该入口(否则 CLPI/seek 在这类盘上失效)。新增 `echo-iso-root` 根目录探针与 `UdfImageBuilder(nestedBdmv=true)` fixture + 2 条用例,全量 **1348 通过 / 0 失败 / 3 跳过** |
+| 2026-10-22 | **巨型盘起播优化**(档案 §13.13):一张 264 mpls / 123 m2ts 的嵌套盘起播 34.7s,其中 mpls 段 22.4s(fetch 13.8s + 解析 8.6s)。①`UdfVolume.snapshot` 支持嵌套 BDMV(快照里用 `BDMV` 别名指向真实目录,格式不变),这类盘从"每次全量"变成"第二次命中快照";②`IsoMplsFetch` 的并发 2 → 4,且把 `parseMplPlaylist` 一起放进任务(纯内存,返回 `MplFetchResult`),失败/取消退化为串行重试一次。新增快照往返用例,全量 **1349 通过 / 0 失败 / 3 跳过** |
+| 2026-10-22 | **目录项 FE 并发读:实测判负,代码已回退**(档案 §13.13):巨型盘的 `dir=11596`(264 个 PLAYLIST 目录项)+ STREAM 123 项 ≈ 17.7s 全串行,试过 `UdfVolume.list` 对 >24 项目录用 4 线程并发读 `readChild`。实测同盘 `dir` 11.59s → 11.39s、STREAM 段 6.14s → 6.21s,**都在误差内**;单请求耗时从 43ms 涨到 173ms ⇒ 上游按并发数限速、总吞吐固定,并发只是把排队时间换了个形状。代码与 4 条测试已删除,`UdfVolume.list` 恢复原实现 |
+| 2026-10-22 | **mpls 读取并行化**(`IsoMplsFetch`,档案 §13.11):`IsoLocator.probePlaylists` 原来逐个串行读,实测 ≈0.1s/个(10 个 1.33s、34 个 3.42s、90 个 **9.25s**,30 张盘里最慢的一张起播 20.3s)。改为并发 2 + 8s 整体超时,取消/异常的条目退回串行补齐,选片结果不变;内联条目(快照命中)与单条 mpls 仍走调用线程。`echo-iso-mpls` 末尾新增 `:fetch=<ms>`;新增 `IsoMplsFetchTest` 3 例,全量 **1338 通过 / 0 失败 / 3 跳过** |

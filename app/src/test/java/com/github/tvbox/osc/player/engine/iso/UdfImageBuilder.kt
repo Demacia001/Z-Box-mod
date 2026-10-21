@@ -8,6 +8,7 @@ internal class UdfImageBuilder(
     private val withBdmv: Boolean = true,
     private val crossBlockFids: Boolean = false,
     private val hybridRecognition: Boolean = false,
+    private val nestedBdmv: Boolean = false,
 ) {
     private val bytes = ByteArray(BLOCK_COUNT * SECTOR_SIZE)
 
@@ -32,7 +33,7 @@ internal class UdfImageBuilder(
         writeRecognition()
         writeAnchor()
         writeVolumeDescriptors()
-        if (useMetadataPartition && !crossBlockFids) {
+        if (useMetadataPartition && !crossBlockFids && !nestedBdmv) {
             writeMetadataLayout()
         } else {
             writePhysicalLayout()
@@ -99,6 +100,10 @@ internal class UdfImageBuilder(
     }
 
     private fun writePhysicalLayout() {
+        if (nestedBdmv) {
+            writeNestedPhysicalLayout()
+            return
+        }
         writeFileSet(300, 1, 0)
         writeFileEntry(301, FILE_TYPE_DIRECTORY, SECTOR_SIZE.toLong(), ICB_AD_SHORT, shortAd(2, SECTOR_SIZE.toLong()))
         writeEntryFids(
@@ -131,6 +136,26 @@ internal class UdfImageBuilder(
         )
         writeFileEntry(307, FILE_TYPE_REGULAR, FIRST_FILE_SIZE, ICB_AD_SHORT, shortAd(30, FIRST_FILE_SIZE))
         writeFileEntry(308, FILE_TYPE_REGULAR, SECOND_FILE_SIZE, ICB_AD_LONG, secondFileAd())
+    }
+
+    private fun writeNestedPhysicalLayout() {
+        writeFileSet(300, 1, 0)
+        writeFileEntry(301, FILE_TYPE_DIRECTORY, SECTOR_SIZE.toLong(), ICB_AD_SHORT, shortAd(2, SECTOR_SIZE.toLong()))
+        writeEntryFids(block = 302, children = listOf(Fid("MOVIE", 3, 0, true)))
+        writeFileEntry(303, FILE_TYPE_DIRECTORY, SECTOR_SIZE.toLong(), ICB_AD_SHORT, shortAd(4, SECTOR_SIZE.toLong()))
+        writeEntryFids(
+            block = 304,
+            children = if (withBdmv) listOf(Fid("BDMV", 5, 0, true)) else emptyList(),
+        )
+        writeFileEntry(305, FILE_TYPE_DIRECTORY, SECTOR_SIZE.toLong(), ICB_AD_SHORT, shortAd(6, SECTOR_SIZE.toLong()))
+        writeEntryFids(block = 306, children = listOf(Fid("STREAM", 7, 0, true)))
+        writeFileEntry(307, FILE_TYPE_DIRECTORY, SECTOR_SIZE.toLong(), ICB_AD_SHORT, shortAd(8, SECTOR_SIZE.toLong()))
+        writeEntryFids(
+            block = 308,
+            children = listOf(Fid("00000.m2ts", 9, 0, false), Fid("00001.m2ts", 10, 0, false)),
+        )
+        writeFileEntry(309, FILE_TYPE_REGULAR, FIRST_FILE_SIZE, ICB_AD_SHORT, shortAd(30, FIRST_FILE_SIZE))
+        writeFileEntry(310, FILE_TYPE_REGULAR, SECOND_FILE_SIZE, ICB_AD_LONG, secondFileAd())
     }
 
     private fun crossingFids(): List<Fid> =

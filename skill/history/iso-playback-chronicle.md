@@ -834,6 +834,87 @@ output.sampleData(data, data.bytesLeft());
 
 ---
 
+### 14.14 分块代理:镜像长度被当成 1024 字节(2026-10-22)
+
+**现象**:点播一张 42GB 原盘,0.7 秒后就弹「视频播放出错」,日志里只有一句 `echo-iso-error:image too small`;同一台设备 4 分钟前播另一张 24.37GB 的盘,`udf-vrs:NSR03` → `m2ts` → `mpls` → 出画全通,所以不是解析链路整体坏掉。
+
+**日志(修复前,重试两次都失败)**:
+
+```
+00:03:29.677  echo-iso-play: format=video/x-iso
+00:03:29.689  echo-iso-play-skip-cache: …/[纳尼亚传奇…42.00GB].iso
+00:03:29.702  echo-iso-prepare-rap:0
+00:03:30.429  echo-iso-error:image too small
+00:03:30.445  echo-exo-player-error: IO_UNSPECIFIED | IsoFormatException: image too small
+00:03:30.666  echo-autoRetry replay same url before decode fallback   ← 重试同样失败
+```
+
+栈顶:`UdfVolume$Builder.readVolumeRecognition(UdfVolume.kt:241)` ← `build` ← `open` ← `IsoResolver.parse` ← `loadVolume` ← `resolve`。该行是 UDF 的第一道闸门:`totalLength < 32 × 2048 = 64KB` 就抛。
+
+**取证**:在 `IsoResolver.readProbe` 加两行诊断(`echo-iso-probe` / `echo-iso-probe-head`)后复现:
+
+```
+00:08:51  echo-iso-probe:len=1024:Content-Type=application/octet-stream|Content-Length=1024|
+          Content-Range=bytes 0-1023/45098467328|Accept-Ranges=bytes
+00:08:51  echo-iso-probe-head:00000000000000000000000000000000
+```
+
+即:代理对**不带 Range** 的请求也回 `206`,body 只给 1024 字节,真实总长藏在 `Content-Range` 的 `/` 之后 —— 45,098,467,328 = 42.0GB,与文件名 `[42.00GB]` 对得上。首 16 字节全零也是 BD 盘常态(AVDP 在 sector 16)。
+
+**根因**:`DataSource.open()` 的返回值语义是「**本次请求可读字节数**」,不是镜像总长;只有 `200 + Content-Length = 完整长度` 时才等价。`readProbe` 把它直接存成 `totalLength`,于是一张 45GB 的盘被记成 1024 字节。23:59 那张盘走的是 200 分支,所以这个 bug 在既有样本上一直没有暴露。
+
+**修复**:
+
+| 改动 | 位置 | 说明 |
+|---|---|---|
+| 总长改口径 | `probeTotalLength(headers, openedLength)` | 优先 `Content-Range: bytes a-b/total` 的 total,取不到才回落 `open()` 返回值;另有 `parseContentRangeTotal` 处理 `bytes */total`、`*`、缺失与畸形 |
+| 首 4KB 补齐 | `readProbe` | 本次连接给的字节数 < 4096 时,用一次带 Range 的 `DataSourceRangeReader.read(direct, 4096-direct)` 补齐,指纹口径维持 4KB |
+| 失败可诊断 | `readProbe` | probe 阶段抛 `IsoFormatException` 也打 `echo-iso-error`(原来只有 `resolve` 内部打,probe 自己的失败在日志里是哑的) |
+
+**判据**(常驻,前缀已在 `echo-iso` 白名单):`echo-iso-probe:open=<本次可读>:total=<真实总长>:Content-Type=…|Content-Length=…|Content-Range=…|Accept-Ranges=…` 与 `echo-iso-probe-head:<前 16 字节 hex>`。**`open != total` 就是上游自带分块**。
+
+**验证**:`IsoProbeLengthTest` 7 例(`bytes 0-1023/45098467328`、`bytes */123`、`bytes 0-1023/*`、空/`bytes`/无斜杠/非数字/0/无 `bytes` 前缀、回落、大小写);`IsoResolverTest` 的读计数改为排除 `iso-prepare` 线程;全量 **1333 通过 / 0 失败 / 3 跳过**。复现侧:`echo-iso-probe:open=1024:total=45098467328` → UDF 全链路 → 出画有声、22 条轨语言齐全、PGS 出字。
+
+**教训**:`DataSource.open()` 不是「文件长度」API。任何把它的返回值当镜像大小的地方,遇上一个自带分块的代理就会静默错三个数量级,而错误信息(`image too small`)看起来像盘坏了。
+
+---
+
+### 14.15 套文件夹的 ISO:BDMV 不在根目录(2026-10-22)
+
+**现象**:《纳尼亚传奇3 黎明踏浪号》42.05GB(HDWinG 压片)点播后一直缓冲,重试 4 次(每次约 5s)后弹「视频播放出错」,日志里从头到尾只有一句 `BDMV directory missing`。
+
+**取证**(为此加了 `echo-iso-root` 探针):
+
+```
+echo-iso-probe:open=1024:total=45165182976:mode=206
+echo-iso-udf-vrs:NSR03 → avdp:32:32768 → metadata:288:0:1
+echo-iso-udf-metadata-extent:655360+3080192        ← metadata 分区 3MB,比常规盘大几倍
+echo-iso-udf-fsd:1:2
+echo-iso-root:count=5:The Chronicles of Narnia The Voyage of the Dawn Treader 2010 BluRay 1080p AVC DTS-HD MA 5.1:152:1,剧照.jpg:295566:0,简介.txt:6560:0,纳尼亚传奇3.jpg:237952:0,纳尼亚传奇3.txt:18844:0
+echo-iso-error:BDMV directory missing
+```
+
+根目录 5 项:一个 152 字节的**目录**(名字就是整条发布名)+ 2 张图 + 2 个 txt。BDMV 在那个目录里。
+
+**根因**:不是 UDF 解析 bug —— FSD 读到了,根目录项数量、名字、类型全对。这是盘的封装形态:压片组把 `BDMV` 连同海报、简介塞进以片名命名的文件夹,再打成 ISO。我们的 `find(root, "BDMV")` 只认根,于是判定「没有 BDMV」。
+
+**修复**:`IsoLocator` 增加 `bdmvEntry`(lazy),根下找不到就遍历**第一层**子目录找 `BDMV`,命中打 `echo-iso-bdmv:nested=<dir>`。两个消费点必须共用它:
+
+| 消费点 | 不改会怎样 |
+|---|---|
+| `locateSelection()` | 整盘打不开(本次现象) |
+| `loadClipIndex()` | 就算能播,`CLPI` 也找不到 ⇒ RAP 起播与 seek 失效、`duration` 退化成 0 |
+
+**边界与代价**:
+
+- 只下钻一层;`AVCHD/BDMV`(两层以上)仍不支持;
+- 枚举子目录用 `volume.list(root)`,只有「根下没有 BDMV」才会走到;根下命中的盘仍走原来的 `find`,所以「根目录有坏项但 BDMV 正常」的盘不会被这次改动拖下水;
+- 这类盘**当时不生成目录快照**(`UdfVolume.snapshot` 仍假设 BDMV 在根),每次起播都全量解析 —— 已在 §13.13 修掉(快照里用 `BDMV` 别名指向真实目录)。
+
+**验证**:`UdfImageBuilder` 增加 `nestedBdmv`(root → `MOVIE` → `BDMV` → `STREAM`),`IsoUdfEdgeCaseTest` 两条用例:①能找到嵌套 BDMV 并选出 `m2ts`;②确实没有时仍报 `BDMV directory missing`。全量 **1348 通过 / 0 失败 / 3 跳过**。
+
+---
+
 ## 丙、seek 与倍速实验记录(原 spec §11.5–§11.10;含已判负的分支与被推翻的中间结论)
 
 ### 11.5 S0 实测结果(2026-10-20,**已执行**)
@@ -1475,5 +1556,220 @@ echo-iso-idr-miss:00016.m2ts:229486272:66440   ← 16MB 内一个 IDR 都没有
 ```
 
 对照修复前**同一条路径**(23:30:38.533 第二次 prepare → 23:30:39.411):25 条轨全是 `lang=-`,且没有 `echo-iso-stream-lang`;列表退化成 `字幕1 PGS …`。两边唯一差别就是这次修复。
+
+---
+
+### 13.9 起播耗时拆解:首次 12.08s → 快照命中 4.74s(2026-10-22)
+
+同一张 42GB 盘、同一台 MuMu(`preferSoft=true` ⇒ `OMX.google.h264.decoder` 软解),两次点播的日志时间线。
+
+**首次解析(12.08s,`iso-play` → `PLAYING`)**:
+
+| 时刻 | 阶段 | 增量 |
+|---|---|---|
+| 09.628 | `echo-iso-play` | — |
+| 09.911 | probe 拿到长度(`open=1024:total=45.1GB`) | 0.28s |
+| 10.282 | 补齐首 4KB | 0.37s |
+| 10.695 | `udf-vrs:NSR03` | 0.41s |
+| 12.007 | `udf-metadata` | 0.87s |
+| 12.966 | metadata extent 512KB 预取 | 0.96s |
+| 12.971 | `m2ts:count=30`(目录遍历完成) | 0.01s |
+| 17.070 | `mpls:count=34`(34 个串行) | **3.42s** |
+| 17.957 | 快照构建 44,670B(同步阻塞) | **0.88s** |
+| 18.706 | `track-defer:declared=28` | 0.74s |
+| 21.331 | `codec-init OMX.google.h264` | — |
+| 21.711 | `PLAYING` | 2.90s(自 18.808 尾读) |
+
+**快照命中(4.74s)**:
+
+| 时刻 | 阶段 | 增量 |
+|---|---|---|
+| 25.961 | `echo-iso-play` + `prepare-rap:114499` | — |
+| 26.263 | `probe:open=1024:total=45.1GB` | 0.30s |
+| 26.756 | `probe-head`(补读 3072 字节) | 0.49s |
+| 26.761 | `m2ts:count=30`(快照命中) | 0.005s |
+| 26.767 | `mpls:count=34`(快照内联,零网络) | **0.006s**(原 3.42s) |
+| 26.768 | `cache-hit:5:1` + `stream-lang:count=22` | — |
+| 27.407 | `clpi` 索引 + `seek-rap:114499:110904:00000.m2ts:555648960` | 0.64s |
+| 28.442 | 28 轨声明完成 + media3 尾读 | 1.03s |
+| 30.222 | `codec-init OMX.google.h264` | — |
+| 30.705 | `PLAYING` | 2.26s(自 28.442) |
+
+两轮之间唯一的代码差别是下面两项;`udf-vrs` 到 `mpls` 那 6 秒整段消失来自早就落地的目录快照,不是本轮新增。
+
+**本轮落地的两项**:
+
+1. **快照构建移出起播路径**:`IsoResolver.parse` 原来同步调 `buildSnapshot()`(44,670B 的目录树遍历 + 编码,**884ms**)才交给 `IsoPrepare.schedule`;现在 `schedule` 的第 4 参改成 `(() -> ByteArray?)?`,构建与 `IsoDiskCache.saveBytes` 都在 `iso-prepare` 线程执行,并排在 clpi 预取(仍 6s 延迟)之前。**注意它只在首次解析生效** —— 快照命中路径根本不构建快照,所以 `echo-iso-cache-save` 在第二轮不会出现,这是预期。
+2. **起播探测的总长口径**(见 §14.14)顺带暴露了 probe 的一次多余往返:该源对无 Range 请求只给 1024 字节,当前实现是「探长度 + 再补一次 3072」,第二次起播里占 0.49s。改成一开始就带 `Range: bytes=0-4095` 可省这一次,需要给不接受 Range 的源留回退,尚未开工。
+
+**剩余瓶颈**(均未开工):probe 补读 0.49s、clpi 索引 0.64s(RAP 起播必需,可尝试与轨道声明并行)、软解首帧 2.26s(模拟器 `OMX.google.h264.decoder`,真机硬解不同)。带宽不是瓶颈:`echo-iso-bps` 稳定在 17.2MB/s,盘需求 4.76MB/s。
+
+---
+
+### 13.10 兼容性判据补强:截断、未知流、源能力(2026-10-22)
+
+起因是「解析兼容性为什么这么差」这一问。梳理代码后发现,链路里至少有三类失败**根本没有痕迹**:用户看到的现象与日志对不上,每次都要先猜、再补探针。三项都只加日志或前置判定,不动解析逻辑。
+
+**1. 上游截断被当成正常结尾**(`M2tsDataSource.M2tsStream`)
+
+`read()` 原来有两个分支直接 `bytesRemaining = 0; return END_OF_INPUT`:①`skipAts()` 失败;②上游 `read` 返回 0。其中「本次 open 的字节数读完」与「上游提前断开」混在一起,于是 CDN 掐连接的表现是「播到某处停住 / 直接结束」,日志里一条错都没有。
+
+改法:只有 `upstreamRemaining > 0` 却读不到数据才算截断,打 `echo-iso-truncated:<position>:<bytesRemaining>`(每会话一次,避免刷屏);`max <= 0` 那条仍是正常结束,不打。
+
+**2. 未映射 `stream_type` 静默丢轨**(`BdTsPayloadReaderFactory`)
+
+`else -> defaults.createPayloadReader(...)` 里,media3 不认识的 BD 私有类型返回 null → 该 ES 整条被丢,轨道菜单少一条,没有任何日志。现在 null 时打 `echo-iso-stream-unmapped:<stream_type>:<lang>`(按类型去重)。要区分: `0x80/0x82/0x83/0x90` 在对应开关关闭时也返回 null,那是**有意行为**,不走这条分支。
+
+**3. 源能力不可见**(`IsoResolver.readProbe`)
+
+`echo-iso-probe` 原来只有 `open/total` 与四个响应头,看不出「这个源到底支不支持随机读」。现在补 `mode=`:
+
+- `206` = 分块源,总长取 `Content-Range`;
+- `200` = 整文件源,总长取 `open()` 返回值;
+- `range-none` = `Accept-Ranges: none`。这种源上 ISO 的每个扇区读都会退化成从头拉,不可能播完,因此直接 `IsoSessionSignal.markStub(total)` + 抛 `range unsupported`,让 UI 走已有的「该线路返回的资源不完整」文案,而不是等 UDF 报 `image too small` 这种指错方向的消息。
+
+**判据速查**:「播一半停住 / 直接结束」先看有没有 `echo-iso-truncated`;「菜单少一条音轨或字幕」先看有没有 `echo-iso-stream-unmapped`;「起播就失败或极慢」看 `echo-iso-probe` 的 `mode=` 与 `open/total`。
+
+**验证**:`IsoProbeLengthTest` 7 → 9 例(`isRangeUnsupported` 的大小写/缺失/`bytes`、`sourceMode` 三态);全量 **1335 通过 / 0 失败 / 3 跳过**;`assembleDebug` 通过并装机。三项都还没在实盘上被触发到,属「下次出问题时能立刻定性」的预防性判据。
+
+---
+
+### 13.11 mpls 读取并行化(2026-10-22)
+
+**起因**:三张盘的起播时间线与盘内索引文件数量高度线性 —— 10 个 mpls 1.33s、34 个 3.42s、90 个 **9.25s**(47.8GB 盘,整次起播 20.3s,mpls 占掉一半)。每次 `volume.readEntry()` 都是一次独立的 Range 往返,实测约 100ms/次。
+
+**为什么以前不做**:档案 §13.5 否决过并行读,前提是「当盘只有 5 个 mpls,并行只省 0.3s,且快照命中后零网络」。多 mpls 盘(90 个)让这个前提失效。
+
+**形态**(`IsoMplsFetch`,与 `IsoLocator` 同文件的 internal object):
+
+| 决策 | 取值 | 理由 |
+|---|---|---|
+| 并发度 | 2 → **4**(§13.13) | 初始沿用 §13.5 的安全上限;264 mpls 的盘实测 13.8s 太慢,提到 4,并保留「失败串行重试」兜底 |
+| 整体超时 | 8s → **12s**(§13.13) | 90 个 × 100ms / 4 ≈ 2.3s,264 个 ≈ 6.9s,留一倍余量 |
+| 失败处理 | 已取消/失败/未完成的条目**退回串行重试一次** | 不因一次抖动丢掉整盘选片,也不会整体回到最慢路径 |
+| 内联条目 | 不并发 | 快照命中时 mpls 在 `EntryData.Embedded` 里,串行是纯内存 |
+| 单条 mpls | 不并发 | 省掉线程池调度开销 |
+| 解析 | **与读同一个任务**(§13.13) | `parseMplPlaylist` 是纯函数、无共享状态;264 个串行 8.6s,并行后约 2–3s |
+
+**判据**:`echo-iso-mpls` 行末尾新增 `:fetch=<ms>`(实际抓取耗时,不含解析)。同一张 90 mpls 的盘应看到 `fetch` 从 9.25s 降到 4.5s 左右;若同时出现多条 `echo-iso-mpls-skip:*:reason=read`,说明并发已经触发上游截断,应把 `THREADS` 调回 1。
+
+---
+
+### 13.12 合成盘边界用例(2026-10-22)
+
+没有更多实盘时,用内存构造覆盖「整盘打不开」这一类分支(`IsoUdfEdgeCaseTest`):
+
+| 用例 | 构造方式 | 现状 |
+|---|---|---|
+| 虚拟分区映射 | LVD `partition_map` 的 type 字节改成 3 | `unsupported partition map`,open 阶段失败 |
+| 非 2048 块 | LVD blockSize 改成 1024 | `unsupported block size: 1024` |
+| 扩展 AD(type 2) | root FE 的 ICB flags 改成 2 | `unsupported allocation type: 2` |
+| 稀疏 extent | STREAM 目录 FE 的首个 `short_ad` 高位标成 1 | `sparse extent type=1 …`,访问该目录时才失败 |
+| STREAM 缺失 | `UdfImageBuilder(withBdmv = false)` | `BDMV/STREAM directory missing` |
+
+**过程中确认的事实**:root FE 的分配描述符在 `UdfVolume.open()` 的 `build()` 阶段就会被解析 ⇒ 这类损坏是「整盘打不开」,不会出现「打开成功、某个目录坏」。稀疏 extent 相反,只在访问到那个目录时才暴露(建索引阶段读不到它)。
+
+**合集盘**:`MplPlaylistTest.picksLongestPlaylistEvenOnMultiEpisodeDisc` 把现状锁住 —— 一碟三集(40 / 45 / 42 分钟)时选 45 分钟那个,与用户点的是第几集无关。这是 D3「不做用户选播放列表」的直接代价,不是回归;要改需要「按集号猜 playlist」或「给用户选择入口」。
+
+**当时没能构造、后已补齐的**:`MplPlaylistTest` 的 builder 增加 `subPaths` 与 `connectionCondition`:
+
+- `ignoresSubPathPlayItems` —— `number_of_subpaths=1` 且给出最小 `SubPaths / SubPath / SubPlayItem`(各级 length 字段自洽)时,解析不失败,且 sub-path 里的播放项**不进** `streams`。它锁的是「只读 STN、不读 SubPaths」的现状,将来实现 sub-path 必须同步改这条。
+- `concatenatesSeamlessPlayItems` —— 两个 `connection_condition=5` 的 play item 仍按顺序拼接、时长相加。锁的是「不做 seamless 去重/接续」的现状。
+
+两条都只是**结构自洽的最小构造**,不代表真实 sub-path 语义(pid 在 STN 的 stream_entry 里,SubPlayItem 本身不带 pid)。它们证明的是「解析器对这两种结构当前的取舍」,不是「真实盘行为正确」。
+
+**仍未构造**: 多 BDMV —— builder 只能写一个 BDMV,而 UDF 同目录不允许重名;真实场景是 `AVCHD/BDMV` 这类子目录层级,需要另一个 fixture。
+
+单测 1338 → **1346**(新增 8 条)。
+
+---
+
+### 13.13 巨型盘起播:264 个 mpls 的 34.7s 拆解与两项优化(2026-10-22)
+
+**现场**:§14.15 那张嵌套 BDMV 的 42.05GB 盘,123 个 m2ts + **264 个 mpls** + 123 个 clpi,起播 **34.7s**。
+
+| 段 | 耗时 | 说明 |
+|---|---|---|
+| probe + 补读 4KB | 0.95s | |
+| UDF VRS → FSD | 1.45s | metadata extent 3MB |
+| **BDMV 目录遍历** | **4.26s** | 510 个 FE,每个一次 Range |
+| **mpls fetch** | **13.78s** | 264 个,并发 2,约 104ms/个 |
+| **mpls 解析** | **8.6s** | 264 × 32ms,在 Loader 线程串行 |
+| 轨道声明 + 尾读 | 3.0s | 31 条轨 |
+| codec-init → 播放 | 0.8s | 硬解 |
+
+**关键发现**:日志里是 `echo-iso-cache-incomplete` —— 快照根本没生成,因为 `UdfVolume.snapshot` 仍要求 BDMV 在根。于是这张盘**每次起播都全量解析**。
+
+**两项改动**:
+
+1. **快照支持嵌套**:`snapshot()` 先在根找 BDMV,找不到就遍历第一层子目录;命中后往 root children 写一条 `BDMV` **别名**(指向真实目录的 extents),`directories["BDMV"]` 放真实内容。快照格式与版本号不变 —— `CachedVolume` 按名字建 path,别名天然命中,`find(root,"BDMV")` 照常工作。这类盘从「每次全量」变成「第二次 cache-hit」,跳过 UDF 遍历 + 264 次 mpls 读。
+2. **读与解析同任务并行**:`IsoMplsFetch` 的任务从「读字节」改成「读 + `parseMplPlaylist`」,返回 `MplFetchResult(bytes, playlist)`;并发 2 → 4,超时 8s → 12s。任一任务失败或取消时,**从该下标起串行重试一次**(原实现只对「被取消」的补读,读失败直接跳过,有丢正片 mpls 的风险)。
+
+**判据**:`echo-iso-mpls:…:fetch=<ms>` 现在**含解析时间**;264 mpls 的盘应从「fetch 13.8s + 解析 8.6s」降到合计 7s 左右。若 `echo-iso-mpls-skip:*:reason=read` 明显增多,说明并发 4 触发上游截断,把 `THREADS` 回退到 2。
+
+**未做**:BDMV 目录遍历那 4.26s(510 个 FE 逐个读)仍串行,目前只能靠快照覆盖;根目录层没有并发读。
+
+**第三项(同日追加):目录项 FE 并发读 —— 实测判负,已回退**。`dir=11596` 证实 `volume.list(PLAYLIST)` 的 264 个目录项 FE 是**串行**读的(每项一次 Range),加上 STREAM 的 123 项,首次解析有 ≈17.7s 花在这里。
+
+做法曾是:`UdfVolume.list` 对 >24 项的目录把 `readChild` 拆给 4 线程池(15s 整体超时),结果按原顺序回填,失败/超时退回串行。
+
+**实测(清空快照后重播同一张盘)**:
+
+| 指标 | 串行 | 并发 4 |
+|---|---|---|
+| `dir`(264 个 PLAYLIST 项) | 11.59s | 11.39s |
+| `bdmv → m2ts`(STREAM 123 项) | 6.14s | 6.21s |
+| 单个 FE 请求耗时 | ~43ms | **~173ms** |
+
+结论:**并发不提速**。单请求耗时正好涨了约 4 倍,总时间不变 —— 上游按并发数限速、总吞吐固定,并发只是把排队时间换了个形状。这和 §13.11 里「mpls 并发 2→4 反而从 13.8s 涨到 16.1s」是同一个现象的两个证据。代码与 4 条测试已删除,`UdfVolume.list` 恢复原实现。
+
+**推论**:首次解析那 30s+ 的目录开销,靠"并发"无法改善;能动的只有**减少请求数**(快照已经做到)或换更快线路。
+
+**验证**:新增「嵌套快照 encode/decode 往返后仍能选出 m2ts」用例,全量 **1349 通过 / 0 失败 / 3 跳过**。
+
+**实测(01:14,同一张盘,续播 56s)**:
+
+```
+01:14:28.341  echo-iso-play
+01:14:28.846  echo-iso-probe:open=1024:total=45165182976:mode=206
+01:14:29.295  echo-iso-volume-key:bd8b48892ca7:4096
+01:14:29.305  echo-iso-m2ts:count=123            ← 快照内联,0.01s(全量时 6.14s)
+01:14:30.468  echo-iso-mpls:count=264            ← 快照内联,1.16s(全量时 28.3s,含 dir 11.6s)
+01:14:30.471  echo-iso-cache-hit:5:1
+01:14:31.078  echo-iso-seek-rap:56001:53930:00800.m2ts:229086336
+01:14:32.076  echo-iso-seek:29372466136:1128000
+01:14:34.697  echo-exo-codec-init HARDWARE
+01:14:35.283  PLAYING
+```
+
+- 全量首次 **34.7~43.8s** → 快照命中 **6.94s**(另一次 8.19s,波动范围 6.9~8.2s);
+- 剩余构成:probe+补读 0.95s、快照解析 1.16s、clpi 0.61s、轨道声明 0.90s、尾读→codec 2.62s、codec→PLAYING 0.59s;
+- **首次仍 30s+**:`dir=11596`(264 个 PLAYLIST 目录项 FE 串行)+ STREAM 目录 123 项 ≈ 17.7s,是下一次能动的目标(目录项 FE 并发读);
+- **未定位**:01:10 / 01:11 两次同盘起播没有 `cache-hit`(当时包还没有 `volume-key` 判据,无法确认 key 是否一致),01:14 起连续可用。暂按「已恢复」看待;若再出现无命中,先看 `echo-iso-cache-miss` 与 `echo-iso-volume-key` 两次是否相同。
+
+**同日审查补丁**(mpls 并发的两处自伤):
+
+1. **cancel 竞态会静默丢 mpls**:原写法 `if (future.isCancelled) break` 之后才 `get()`,若超时恰好发生在两者之间,`get()` 抛 `CancellationException` 被吞成 null、`head` 继续推进 ⇒ 该 mpls 被当成「读失败」跳过且**不会串行补齐**,极端情况下丢掉正片 mpls、降级到最大单文件。改为 `value == null && future.isCancelled` 时 break,让它落回串行补齐。
+2. **`runCatching` 会吞 `Error`**:它捕获 `Throwable`,`OutOfMemoryError` 会被当成「这条 mpls 读失败」,把崩溃变成静默降级。改为 `catch (e: Exception)`。
+
+**验证**:新增 `IsoMplsFetchTest` 3 例(顺序保持 + 单条失败隔离、多线程确实被使用、内联条目留在调用线程);全量 **1338 通过 / 0 失败 / 3 跳过**;已 `assembleDebug` 并装机。
+
+**实测(2026-10-22 00:32,同一张 44.5GB / 90 mpls 盘)**:
+
+```
+00:32:01.408  echo-iso-play
+00:32:02.801  echo-iso-probe:open=1024:total=47814213632:mode=206
+00:32:05.438  echo-iso-m2ts:count=112
+00:32:08.889  echo-iso-mpls:count=90:parsed=90:skipped=0:…:fetch=2604
+00:32:10.403  echo-iso-track-defer:declared=13
+00:32:13.781  echo-exo-codec-init name=OMX.qcom.video.decoder.avc kind=HARDWARE
+00:32:14.047  PLAYING
+```
+
+- mpls 抓取 **9.25s → 2.60s**(−72%),另外 0.85s 是调用线程上的解析;
+- 同一张盘整次起播 **20.3s → 12.64s**;省下的 7.7s 里 6.6s 来自 mpls,其余来自 UDF 段本身的网络波动(该段 6.2s → 2.35s,不可归因于本次改动);
+- `skipped=0`,没有出现 `echo-iso-mpls-skip:*:reason=read` ⇒ 并发没有触发上游截断,`THREADS = 2` 可以保留。
+
+改动后这张盘的时间构成:probe + 补读 1.53s、UDF 2.35s、mpls 3.45s(fetch 2.60 + parse 0.85)、轨道声明到尾读 1.50s、尾读到 `codec-init` 3.28s。**当前最大的两段是「尾读→解码器初始化」和「mpls 解析」**,前者取决于首批数据与硬解能力,后者是纯 CPU、并行化收益有限。
 
 顺带记一个**踩坑**:第一次复验时用户"退出播放页再进同一集",日志出现 `echo-p3 take over same playback`(`sameOwned=true`)—— 页面直接接管旧播放,**不重建媒体源**,既不复现旧 bug 也不验证修复。要走到 `IsoVolumeCache` 那条路,必须真正触发第二次 `prepare()`(换线路、或播别的条目再回来)。

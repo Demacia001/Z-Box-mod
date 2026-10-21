@@ -25,15 +25,15 @@ class LiquidGlassConfigTest {
     }
 
     @Test
-    fun defaults_areLowerBlurAndMoreTranslucent() {
-        assertEquals(10f, LiquidGlassState.DEFAULT_BLUR_DP, 0f)
-        assertEquals(20f, LiquidGlassState.DEFAULT_DISTORTION_DP, 0f)
-        assertEquals(0.7f, LiquidGlassState.DEFAULT_TRANSLUCENCY, 0f)
+    fun defaults_matchDesignValues() {
+        assertEquals(5f, LiquidGlassState.DEFAULT_BLUR_DP, 0f)
+        assertEquals(30f, LiquidGlassState.DEFAULT_DISTORTION_DP, 0f)
+        assertEquals(0.5f, LiquidGlassState.DEFAULT_TRANSLUCENCY, 0f)
         val config = at(LiquidGlassState.DEFAULT_TRANSLUCENCY)
-        assertEquals(0.6f, config.containerAlphaScale, 0f)
+        assertEquals(1f, config.containerAlphaScale, 0f)
         assertEquals(0f, config.contentBrightness, 0f)
         assertEquals(1f, config.contentContrast, 0f)
-        assertEquals(1.3f, config.contentSaturation, 0f)
+        assertEquals(1.5f, config.contentSaturation, 0f)
     }
 
     @Test

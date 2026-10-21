@@ -91,8 +91,8 @@ private fun Modifier.crossAxisSize(axis: NavAxis, length: Dp): Modifier =
 private fun Modifier.mainAxisLength(axis: NavAxis, length: Dp): Modifier =
     if (axis == NavAxis.Horizontal) width(length) else height(length)
 
-private fun Modifier.mainAxisFill(axis: NavAxis): Modifier =
-    if (axis == NavAxis.Horizontal) fillMaxWidth() else fillMaxHeight()
+private fun Modifier.mainAxisStretch(axis: NavAxis): Modifier =
+    if (axis == NavAxis.Horizontal) fillMaxWidth() else this
 
 private fun Modifier.mainAxisPadding(axis: NavAxis, value: Dp): Modifier =
     if (axis == NavAxis.Horizontal) padding(horizontal = value) else padding(vertical = value)
@@ -158,9 +158,11 @@ fun FloatingNavBar(
         modifier = modifier,
         contentAlignment = if (isHorizontal) Alignment.CenterStart else Alignment.TopCenter
     ) {
-        val mainAxisConstraint = if (isHorizontal) constraints.maxWidth else constraints.maxHeight
-        val totalStridePx =
-            if (mainAxisConstraint == Constraints.Infinity) 0f else mainAxisConstraint.toFloat()
+        val totalStridePx = if (isHorizontal) {
+            if (constraints.maxWidth == Constraints.Infinity) 0f else constraints.maxWidth.toFloat()
+        } else {
+            with(density) { (NavMetrics.SLOT_MAIN_DP * slotCount + 8).dp.toPx() }
+        }
         val slotStridePx =
             if (totalStridePx > 0f) (totalStridePx - with(density) { 8f.dp.toPx() }) / slotCount else 0f
         val maxSlotPosition = (slotCount - 1).toFloat()
@@ -330,7 +332,7 @@ fun FloatingNavBar(
                 )
                 .then(interactiveHighlight?.modifier ?: Modifier)
                 .crossAxisSize(axis, 64.dp)
-                .mainAxisFill(axis)
+                .mainAxisStretch(axis)
                 .padding(4.dp),
             horizontalContent = {
                 NavSlotsRow(
@@ -398,7 +400,7 @@ fun FloatingNavBar(
                     )
                     .then(interactiveHighlight?.modifier ?: Modifier)
                     .crossAxisSize(axis, 56.dp)
-                    .mainAxisFill(axis)
+                    .mainAxisStretch(axis)
                     .mainAxisPadding(axis, 4.dp)
                     .graphicsLayer(colorFilter = ColorFilter.tint(accentColor)),
                 horizontalContent = {
@@ -556,7 +558,7 @@ private fun ColumnScope.NavSlotsColumn(
                 enabled = enabled,
                 onClick = onActionClick,
                 role = Role.Button,
-                modifier = Modifier.fillMaxWidth().weight(1f),
+                modifier = Modifier.fillMaxWidth().height(NavMetrics.SLOT_MAIN_DP.dp),
             )
         } else {
             val index = NavMetrics.tabIndexOfSlot(slot, actionSlot)
@@ -565,7 +567,7 @@ private fun ColumnScope.NavSlotsColumn(
                 selected = index == currentIndex,
                 enabled = enabled,
                 onClick = { onTabSelected(index) },
-                modifier = Modifier.fillMaxWidth().weight(1f),
+                modifier = Modifier.fillMaxWidth().height(NavMetrics.SLOT_MAIN_DP.dp),
             )
         }
     }

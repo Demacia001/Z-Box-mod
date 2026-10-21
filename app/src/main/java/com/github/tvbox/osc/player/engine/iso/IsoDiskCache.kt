@@ -10,7 +10,11 @@ internal object IsoDiskCache {
     private var legacyDropped = false
 
     fun load(key: String): IsoVolumeSnapshot? {
-        val dir = directory() ?: return null
+        val dir = directory()
+        if (dir == null) {
+            LOG.i("echo-iso-cache-nodir")
+            return null
+        }
         return loadFrom(dir, key)
     }
 
@@ -46,7 +50,10 @@ internal object IsoDiskCache {
 
     internal fun loadFrom(dir: File, key: String): IsoVolumeSnapshot? {
         val file = File(dir, nameOf(key))
-        if (!file.isFile || file.length() <= 0L || file.length() > MAX_BYTES) return null
+        if (!file.isFile || file.length() <= 0L || file.length() > MAX_BYTES) {
+            LOG.i("echo-iso-cache-miss:${file.name.takeLast(20)}:${file.length()}")
+            return null
+        }
         val bytes = try {
             file.readBytes()
         } catch (e: Exception) {

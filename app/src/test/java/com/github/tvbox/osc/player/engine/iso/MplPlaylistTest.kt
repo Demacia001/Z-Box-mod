@@ -214,10 +214,44 @@ class MplPlaylistTest {
         assertNull(playlist.videoPid)
     }
 
-    private fun mpls(vararg items: ByteArray): ByteArray {
+    @Test
+    fun ignoresSubPathPlayItems() {
+        val data = mpls(item("00011", 0L, TICKS_PER_MINUTE), subPaths = subPaths("00012"))
+
+        val playlist = requireNotNull(parseMplPlaylist("00000.mpls", data))
+
+        assertEquals(1, playlist.segments.size)
+        assertEquals(0, playlist.streams.size)
+    }
+
+    @Test
+    fun concatenatesSeamlessPlayItems() {
+        val data = mpls(
+            item("00011", 0L, TICKS_PER_MINUTE, connectionCondition = 5),
+            item("00012", 0L, TICKS_PER_MINUTE, connectionCondition = 5),
+        )
+
+        val playlist = requireNotNull(parseMplPlaylist("00000.mpls", data))
+
+        assertEquals(2, playlist.segments.size)
+        assertEquals(2 * 60_000L, playlist.durationMs)
+    }
+
+    @Test
+    fun picksLongestPlaylistEvenOnMultiEpisodeDisc() {
+        val episode1 = requireNotNull(parseMplPlaylist("00001.mpls", mpls(item("00011", 0L, TICKS_PER_MINUTE * 40))))
+        val episode2 = requireNotNull(parseMplPlaylist("00002.mpls", mpls(item("00012", 0L, TICKS_PER_MINUTE * 45))))
+        val episode3 = requireNotNull(parseMplPlaylist("00003.mpls", mpls(item("00013", 0L, TICKS_PER_MINUTE * 42))))
+
+        val chosen = requireNotNull(pickLongestPlaylist(listOf(episode1, episode2, episode3)))
+
+        assertEquals("00002.mpls", chosen.name)
+    }
+
+    private fun mpls(vararg items: ByteArray, subPaths: ByteArray = ByteArray(0)): ByteArray {
         var body = ByteArray(0)
         items.forEach { body += it }
-        val playListLength = 2 + 2 + 2 + body.size
+        val playListLength = 2 + 2 + 2 + body.size + subPaths.size
         val total = PLAY_LIST_OFFSET + 4 + playListLength
         val data = ByteArray(total)
         "MPLS".forEachIndexed { index, c -> data[index] = c.code.toByte() }
@@ -228,9 +262,36 @@ class MplPlaylistTest {
         putBe32(data, PLAY_LIST_OFFSET, playListLength.toLong())
         putBe16(data, PLAY_LIST_OFFSET + 4, 0)
         putBe16(data, PLAY_LIST_OFFSET + 6, items.size)
-        putBe16(data, PLAY_LIST_OFFSET + 8, 0)
+        putBe16(data, PLAY_LIST_OFFSET + 8, if (subPaths.isEmpty()) 0 else 1)
         body.copyInto(data, PLAY_LIST_OFFSET + PLAY_LIST_HEADER_SIZE)
+        subPaths.copyInto(data, PLAY_LIST_OFFSET + PLAY_LIST_HEADER_SIZE + body.size)
         return data
+    }
+
+    private fun subPaths(clipId: String): ByteArray {
+        val playItem = ByteArray(SUB_PLAY_ITEM_SIZE)
+        putBe16(playItem, 0, SUB_PLAY_ITEM_SIZE - 2)
+        clipId.forEachIndexed { index, c -> playItem[2 + index] = c.code.toByte() }
+        "M2TS".forEachIndexed { index, c -> playItem[7 + index] = c.code.toByte() }
+        putBe16(playItem, 11, 0)
+        playItem[13] = 0
+        putBe32(playItem, 14, 0L)
+        putBe32(playItem, 18, TICKS_PER_MINUTE)
+        playItem[22] = 0
+        putBe32(playItem, 23, 0L)
+
+        val path = ByteArray(SUB_PATH_HEADER + playItem.size)
+        putBe32(path, 0, (path.size - 4).toLong())
+        path[4] = 0
+        path[5] = 0
+        path[6] = 1
+        playItem.copyInto(path, SUB_PATH_HEADER)
+
+        val wrapper = ByteArray(SUB_PATHS_HEADER + path.size)
+        putBe32(wrapper, 0, (wrapper.size - 4).toLong())
+        wrapper[4] = 0
+        path.copyInto(wrapper, SUB_PATHS_HEADER)
+        return wrapper
     }
 
     private fun item(
@@ -239,12 +300,14 @@ class MplPlaylistTest {
         outTime: Long,
         extraBody: Int = 0,
         codec: String = "M2TS",
+        connectionCondition: Int = 0,
     ): ByteArray {
         val bodySize = ITEM_BODY_SIZE + extraBody
         val bytes = ByteArray(2 + bodySize)
         putBe16(bytes, 0, bodySize)
         clipId.forEachIndexed { index, c -> bytes[2 + ITEM_CLIP_ID_OFFSET + index] = c.code.toByte() }
         codec.forEachIndexed { index, c -> bytes[2 + ITEM_CODEC_OFFSET + index] = c.code.toByte() }
+        putBe16(bytes, 2 + ITEM_FLAGS_OFFSET, connectionCondition shl CONNECTION_CONDITION_SHIFT)
         putBe32(bytes, 2 + ITEM_IN_TIME_OFFSET, inTime)
         putBe32(bytes, 2 + ITEM_OUT_TIME_OFFSET, outTime)
         return bytes
@@ -315,8 +378,13 @@ class MplPlaylistTest {
         const val ITEM_BODY_SIZE = 20
         const val ITEM_CLIP_ID_OFFSET = 0
         const val ITEM_CODEC_OFFSET = 5
+        const val ITEM_FLAGS_OFFSET = 9
+        const val CONNECTION_CONDITION_SHIFT = 12
         const val ITEM_IN_TIME_OFFSET = 12
         const val ITEM_OUT_TIME_OFFSET = 16
+        const val SUB_PATHS_HEADER = 5
+        const val SUB_PATH_HEADER = 7
+        const val SUB_PLAY_ITEM_SIZE = 27
         const val TICKS_PER_SECOND = 45_000L
         const val TICKS_PER_MINUTE = TICKS_PER_SECOND * 60
         const val ITEM_STN_OFFSET = 32

@@ -92,12 +92,13 @@ class IsoResolverTest {
 
     private fun reader(image: ByteArray, reads: AtomicInteger) =
         RangeBlockReader { start, length ->
-            reads.incrementAndGet()
+            if (!Thread.currentThread().name.startsWith(PREPARE_THREAD)) reads.incrementAndGet()
             image.copyOfRange(start.toInt(), (start + length).toInt())
         }
 
     private companion object {
         const val PROBE_SIZE = 4096
         const val IMAGE_SIZE = 400L * SECTOR_SIZE
+        const val PREPARE_THREAD = "iso-prepare"
     }
 }

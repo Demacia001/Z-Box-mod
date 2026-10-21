@@ -7,6 +7,7 @@ import androidx.media3.datasource.DataSource
 import androidx.media3.datasource.DataSpec
 import com.github.tvbox.osc.util.LOG
 import java.io.IOException
+import java.util.concurrent.atomic.AtomicBoolean
 
 class M2tsDataSource internal constructor(
     private val upstreamFactory: DataSource.Factory,
@@ -128,6 +129,7 @@ internal class M2tsStream(
     private var position = start
     private var skipRemaining = 0
     private val skipBuffer = ByteArray(M2TS_ATS_SIZE)
+    private val truncatedLogged = AtomicBoolean(false)
 
     fun position(): Long = position
 
@@ -135,6 +137,7 @@ internal class M2tsStream(
         if (bytesRemaining <= 0L) return C.RESULT_END_OF_INPUT
         if (length == 0) return 0
         if (!skipAts()) {
+            if (upstreamRemaining > 0L) reportTruncated()
             bytesRemaining = 0
             return C.RESULT_END_OF_INPUT
         }
@@ -146,6 +149,7 @@ internal class M2tsStream(
         }
         val read = upstream.read(buffer, offset, max.toInt())
         if (read <= 0) {
+            reportTruncated()
             bytesRemaining = 0
             return C.RESULT_END_OF_INPUT
         }
@@ -157,6 +161,12 @@ internal class M2tsStream(
             skipRemaining = M2TS_ATS_SIZE
         }
         return read
+    }
+
+    private fun reportTruncated() {
+        if (truncatedLogged.compareAndSet(false, true)) {
+            LOG.i("echo-iso-truncated:$position:$bytesRemaining")
+        }
     }
 
     private fun skipAts(): Boolean {

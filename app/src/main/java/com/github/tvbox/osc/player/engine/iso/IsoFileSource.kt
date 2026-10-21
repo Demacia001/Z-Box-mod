@@ -163,9 +163,13 @@ internal fun UdfVolume.snapshot(logger: (String) -> Unit = {}): IsoVolumeSnapsho
     val directories = LinkedHashMap<String, List<IsoEntry>>()
     val root = root()
     val rootListing = listAvailable(root)
-    directories[ISO_ROOT_PATH] = inlineSmall(rootListing.entries)
-    val bdmv = rootListing.entries.firstOrNull { it.name.equals(ISO_BDMV_PATH, ignoreCase = true) }
-        ?: return null
+    val direct = rootListing.entries.firstOrNull { it.name.equals(ISO_BDMV_PATH, ignoreCase = true) }
+    val bdmv = direct ?: nestedBdmv(rootListing.entries) ?: return null
+    directories[ISO_ROOT_PATH] = if (direct != null) {
+        inlineSmall(rootListing.entries)
+    } else {
+        listOf(directoryAlias(bdmv))
+    }
     val bdmvListing = listAvailable(bdmv)
     directories[ISO_BDMV_PATH] = bdmvListing.entries
     val stream = bdmvListing.entries.firstOrNull { it.name.equals("STREAM", ignoreCase = true) }
@@ -201,6 +205,22 @@ private fun UdfVolume.inline(entry: IsoEntry): IsoEntry {
     }
     return IsoEntry(entry.name, false, entry.length, entry.extents, EntryData.Embedded(bytes))
 }
+
+private fun UdfVolume.nestedBdmv(children: List<IsoEntry>): IsoEntry? {
+    for (child in children) {
+        if (!child.directory) continue
+        val nested = try {
+            find(child, ISO_BDMV_PATH)
+        } catch (e: IsoFormatException) {
+            continue
+        }
+        if (nested != null) return nested
+    }
+    return null
+}
+
+private fun directoryAlias(entry: IsoEntry): IsoEntry =
+    IsoEntry(ISO_BDMV_PATH, true, entry.length, entry.extents, EntryData.Extents(entry.extents))
 
 private fun IsoEntry.needsInline(): Boolean =
     !directory && length in 1..INLINE_ENTRY_LIMIT && data !is EntryData.Embedded

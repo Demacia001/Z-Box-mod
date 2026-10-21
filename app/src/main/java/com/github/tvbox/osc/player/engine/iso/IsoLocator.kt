@@ -2,7 +2,11 @@ package com.github.tvbox.osc.player.engine.iso
 
 import com.github.tvbox.osc.util.LOG
 import java.util.Locale
+import java.util.concurrent.Callable
 import java.util.concurrent.ConcurrentHashMap
+import java.util.concurrent.Executors
+import java.util.concurrent.TimeUnit
+import java.util.concurrent.atomic.AtomicInteger
 
 data class IsoPlayRun(val offset: Long, val length: Long)
 
@@ -124,11 +128,12 @@ class IsoLocator(private val volume: IsoFileSource) {
     internal var selectedVideoPid: Int? = null
         private set
 
+    private val bdmvEntry: IsoEntry by lazy { locateBdmv() }
+
     fun locate(): IsoPlayTarget = locateSelection().primary
 
     fun locateSelection(): IsoSelection {
-        val bdmv = volume.find(volume.root(), BDMV)
-            ?: throw IsoFormatException("BDMV directory missing")
+        val bdmv = bdmvEntry
         if (!bdmv.directory) throw IsoFormatException("BDMV is not a directory")
         val stream = volume.find(bdmv, STREAM)
             ?: throw IsoFormatException("BDMV/$STREAM directory missing")
@@ -199,7 +204,11 @@ class IsoLocator(private val volume: IsoFileSource) {
     }
 
     private fun loadClipIndex(key: String): ClpiIndex? {
-        val bdmv = volume.find(volume.root(), BDMV) ?: return null
+        val bdmv = try {
+            bdmvEntry
+        } catch (e: IsoFormatException) {
+            return null
+        }
         val dir = volume.find(bdmv, CLIPINF) ?: return null
         if (!dir.directory) return null
         val want = "$key$CLPI"
@@ -218,6 +227,52 @@ class IsoLocator(private val volume: IsoFileSource) {
         val first = index.accessPoints.first()
         LOG.i("echo-iso-clpi:${entry.name}:rap=${index.accessPoints.size}:first=${first.ptsTicks}:spn=${index.sourcePackets}")
         return index
+    }
+
+    private fun locateBdmv(): IsoEntry {
+        val root = volume.root()
+        val direct = try {
+            volume.find(root, BDMV)
+        } catch (e: IsoFormatException) {
+            dumpRoot(root)
+            throw e
+        }
+        if (direct != null) return direct
+        val children = try {
+            volume.list(root)
+        } catch (e: IsoFormatException) {
+            dumpRoot(root)
+            throw e
+        }
+        for (child in children) {
+            if (!child.directory) continue
+            val nested = try {
+                volume.find(child, BDMV)
+            } catch (e: IsoFormatException) {
+                continue
+            }
+            if (nested != null) {
+                LOG.i("echo-iso-bdmv:nested=${child.name}")
+                return nested
+            }
+        }
+        dumpRoot(root)
+        throw IsoFormatException("BDMV directory missing")
+    }
+
+    private fun dumpRoot(root: IsoEntry) {
+        val children = try {
+            volume.list(root)
+        } catch (e: IsoFormatException) {
+            LOG.i("echo-iso-root:error=${e.message}")
+            return
+        }
+        LOG.i(
+            "echo-iso-root:count=${children.size}:" +
+                children.take(ROOT_LOG_LIMIT).joinToString(",") {
+                    "${it.name}:${it.length}:${if (it.directory) 1 else 0}"
+                },
+        )
     }
 
     private fun toTarget(entry: IsoEntry): IsoPlayTarget? {
@@ -255,9 +310,11 @@ class IsoLocator(private val volume: IsoFileSource) {
             LOG.i("echo-iso-mpls:none dirMissing=${playlistDir == null}")
             return emptyList()
         }
+        val dirStarted = System.currentTimeMillis()
         val entries = volume.list(playlistDir)
             .filter { !it.directory && it.name.lowercase(Locale.ROOT).endsWith(MPLS) }
             .sortedByDescending { it.length }
+        val dirMs = System.currentTimeMillis() - dirStarted
         if (entries.isEmpty()) {
             LOG.i("echo-iso-mpls:none emptyDir")
             return emptyList()
@@ -265,25 +322,39 @@ class IsoLocator(private val volume: IsoFileSource) {
         val parsed = ArrayList<IsoPlaylist>(entries.size)
         val skipped = ArrayList<String>()
         var rawLogged = 0
-        for (entry in entries) {
-            val data = try {
-                volume.readEntry(entry)
-            } catch (e: IsoFormatException) {
-                LOG.i("echo-iso-mpls-skip:${entry.name}:reason=read:${e.message}")
+        var skipLogged = 0
+        var unreadable = 0
+        val fetchStarted = System.currentTimeMillis()
+        val payloads = IsoMplsFetch.load(entries) { entry ->
+            val data = volume.readEntry(entry)
+            MplFetchResult(data, parseMplPlaylist(entry.name, data))
+        }
+        val fetchMs = System.currentTimeMillis() - fetchStarted
+        for (index in entries.indices) {
+            val entry = entries[index]
+            val result = payloads[index]
+            if (result == null) {
+                unreadable++
+                if (skipLogged < MAX_SKIP_LOG) {
+                    LOG.i("echo-iso-mpls-skip:${entry.name}:reason=read")
+                    skipLogged++
+                }
                 skipped.add(entry.name)
                 continue
             }
-            val playlist = parseMplPlaylist(entry.name, data)
-            if (playlist == null) {
+            if (result.playlist == null) {
                 if (rawLogged < MAX_RAW_LOG) {
-                    LOG.i("echo-iso-mpls-raw:${entry.name}:len=${data.size}")
-                    dumpHex(entry.name, data)
+                    LOG.i("echo-iso-mpls-raw:${entry.name}:len=${result.bytes.size}")
+                    dumpHex(entry.name, result.bytes)
                     rawLogged++
                 }
                 skipped.add(entry.name)
             } else {
-                parsed.add(playlist)
+                parsed.add(result.playlist)
             }
+        }
+        if (unreadable > skipLogged) {
+            LOG.i("echo-iso-mpls-skip-more:${unreadable - skipLogged}")
         }
         parsed.sortByDescending { uniqueDurationMs(it) }
         val summary = parsed.take(TOP_N).joinToString(";") {
@@ -296,7 +367,7 @@ class IsoLocator(private val volume: IsoFileSource) {
                 "duration=${chosen?.durationMs}:unique=${chosen?.let(::uniqueDurationMs)}:" +
                 "first=${chosen?.segments?.firstOrNull()?.clipId}:" +
                 "in=${chosen?.segments?.firstOrNull()?.inTimeUs}:out=${chosen?.segments?.firstOrNull()?.outTimeUs}" +
-                ":top=$summary",
+                ":top=$summary:fetch=$fetchMs:dir=$dirMs",
         )
         return parsed
     }
@@ -342,9 +413,75 @@ class IsoLocator(private val volume: IsoFileSource) {
         const val TOP_N = 5
         const val MAX_TARGET_RUNS = 256
         const val MAX_RAW_LOG = 2
+        const val MAX_SKIP_LOG = 8
+        const val ROOT_LOG_LIMIT = 12
         const val HEAD_HEX_BYTES = 4096
         const val HEX_BYTES_PER_LINE = 64
         const val HEX_DIGITS = "0123456789abcdef"
     }
+}
+
+internal class MplFetchResult(val bytes: ByteArray, val playlist: IsoPlaylist?)
+
+internal object IsoMplsFetch {
+
+    private const val THREADS = 4
+    private const val TIMEOUT_MS = 12_000L
+
+    private val ordinal = AtomicInteger(0)
+
+    private val executor = Executors.newFixedThreadPool(THREADS) { runnable ->
+        Thread(runnable, "iso-mpls-${ordinal.incrementAndGet()}").apply { isDaemon = true }
+    }
+
+    fun load(entries: List<IsoEntry>, loader: (IsoEntry) -> MplFetchResult): Array<MplFetchResult?> {
+        val results = arrayOfNulls<MplFetchResult>(entries.size)
+        if (entries.size <= 1 || entries.none { it.data is EntryData.Extents }) {
+            for (index in entries.indices) {
+                results[index] = loadOne(entries[index], loader)
+            }
+            return results
+        }
+        val tasks = entries.map { entry -> Callable { loader(entry) } }
+        val futures = try {
+            executor.invokeAll(tasks, TIMEOUT_MS, TimeUnit.MILLISECONDS)
+        } catch (e: InterruptedException) {
+            Thread.currentThread().interrupt()
+            return serialLoad(entries, loader, results, 0)
+        }
+        var head = 0
+        for (index in futures.indices) {
+            val future = futures[index]
+            if (future.isCancelled) break
+            val value = try {
+                future.get()
+            } catch (e: Exception) {
+                null
+            }
+            if (value == null) break
+            results[index] = value
+            head = index + 1
+        }
+        return if (head == entries.size) results else serialLoad(entries, loader, results, head)
+    }
+
+    private fun serialLoad(
+        entries: List<IsoEntry>,
+        loader: (IsoEntry) -> MplFetchResult,
+        results: Array<MplFetchResult?>,
+        from: Int,
+    ): Array<MplFetchResult?> {
+        for (index in from until entries.size) {
+            results[index] = loadOne(entries[index], loader)
+        }
+        return results
+    }
+
+    private fun loadOne(entry: IsoEntry, loader: (IsoEntry) -> MplFetchResult): MplFetchResult? =
+        try {
+            loader(entry)
+        } catch (e: Exception) {
+            null
+        }
 }
 

@@ -38,6 +38,7 @@ internal class IsoResolver(
 
     fun resolve(probe: IsoProbe, reader: RangeBlockReader, seekMs: Long = 0L): IsoVolumeInfo {
         val key = isoFingerprint(probe.totalLength, probe.firstBytes)
+        logger("echo-iso-volume-key:${key.takeLast(12)}:${probe.firstBytes.size}")
         val info = try {
             IsoVolumeCache.load(key) { loadVolume(key, probe.totalLength, reader) }
         } catch (e: IsoFormatException) {
@@ -90,8 +91,7 @@ internal class IsoResolver(
         val target = selection.primary
         logger("echo-iso-udf-ok:${target.m2tsOffset}:${target.m2tsLength}")
         logger("echo-iso-target:${target.name}:${target.m2tsOffset}:${target.m2tsLength}")
-        val cached = buildSnapshot(volume)
-        IsoPrepare.schedule(key, locator, selection, cached)
+        IsoPrepare.schedule(key, locator, selection, { buildSnapshot(volume) })
         return IsoVolumeInfo(
             totalLength,
             selection,
@@ -120,20 +120,40 @@ internal class IsoResolver(
     private fun readProbe(uri: Uri, factory: DataSource.Factory): IsoProbe {
         val source = factory.createDataSource()
         try {
-            val total = source.open(
+            val opened = source.open(
                 DataSpec.Builder()
                     .setUri(uri)
                     .setPosition(0)
                     .setLength(C.LENGTH_UNSET.toLong())
                     .build(),
             )
+            val headers = source.responseHeaders
+            val total = probeTotalLength(headers, opened)
+            logger("echo-iso-probe:open=$opened:total=$total:mode=${sourceMode(headers)}:${describeHeaders(headers)}")
             if (total == C.LENGTH_UNSET.toLong() || total <= 0) {
                 throw IsoFormatException("unknown length")
             }
+            if (isRangeUnsupported(headers)) {
+                IsoSessionSignal.markStub(total)
+                throw IsoFormatException("range unsupported")
+            }
             val size = minOf(total, PROBE_SIZE.toLong()).toInt()
             val bytes = ByteArray(size)
-            readFully(source, bytes)
+            val direct = if (opened == C.LENGTH_UNSET.toLong()) {
+                size
+            } else {
+                minOf(opened, size.toLong()).toInt()
+            }
+            readExactly(source, bytes, direct)
+            if (direct < size) {
+                val rest = DataSourceRangeReader(factory, uri, logger).read(direct.toLong(), size - direct)
+                System.arraycopy(rest, 0, bytes, direct, rest.size)
+            }
+            logger("echo-iso-probe-head:${hexPrefix(bytes)}")
             return IsoProbe(total, bytes)
+        } catch (e: IsoFormatException) {
+            logger("echo-iso-error:${e.message}")
+            throw e
         } catch (e: IOException) {
             logAuthFailure(e, logger)
             throw e
@@ -142,21 +162,43 @@ internal class IsoResolver(
         }
     }
 
-    private fun readFully(source: DataSource, target: ByteArray) {
+    private fun readExactly(source: DataSource, target: ByteArray, count: Int) {
         var read = 0
-        while (read < target.size) {
-            val count = source.read(target, read, target.size - read)
-            if (count == C.RESULT_END_OF_INPUT) break
-            read += count
+        while (read < count) {
+            val got = source.read(target, read, count - read)
+            if (got == C.RESULT_END_OF_INPUT) break
+            read += got
         }
-        if (read != target.size) {
-            throw IsoFormatException("probe short read: $read/${target.size}")
+        if (read != count) {
+            throw IsoFormatException("probe short read: $read/$count")
         }
+    }
+
+    private fun describeHeaders(headers: Map<String, List<String>>): String {
+        val builder = StringBuilder()
+        for (key in PROBE_HEADER_KEYS) {
+            if (builder.isNotEmpty()) builder.append('|')
+            builder.append(key).append('=').append(headerValue(headers, key)?.take(80) ?: "-")
+        }
+        return builder.toString()
+    }
+
+    private fun hexPrefix(bytes: ByteArray): String {
+        val size = minOf(bytes.size, PROBE_HEX_BYTES)
+        val builder = StringBuilder(size * 2)
+        for (index in 0 until size) {
+            val value = bytes[index].toInt() and 0xFF
+            if (value < 0x10) builder.append('0')
+            builder.append(value.toString(16))
+        }
+        return builder.toString()
     }
 
     private companion object {
         const val PROBE_SIZE = 4096
         const val MAX_PROBES = 8
+        const val PROBE_HEX_BYTES = 16
+        val PROBE_HEADER_KEYS = listOf("Content-Type", "Content-Length", CONTENT_RANGE_HEADER, "Accept-Ranges")
     }
 }
 
@@ -253,6 +295,35 @@ internal object IsoVolumeCache {
         inFlight.clear()
     }
 }
+
+internal fun headerValue(headers: Map<String, List<String>>, key: String): String? =
+    headers.entries.firstOrNull { it.key.equals(key, ignoreCase = true) }?.value?.firstOrNull()
+
+internal fun probeTotalLength(headers: Map<String, List<String>>, openedLength: Long): Long =
+    parseContentRangeTotal(headerValue(headers, CONTENT_RANGE_HEADER)) ?: openedLength
+
+internal fun parseContentRangeTotal(value: String?): Long? {
+    val trimmed = value?.trim() ?: return null
+    if (!trimmed.startsWith("bytes", ignoreCase = true)) return null
+    val slash = trimmed.lastIndexOf('/')
+    if (slash < 0 || slash == trimmed.length - 1) return null
+    val total = trimmed.substring(slash + 1).trim()
+    if (total == "*") return null
+    return total.toLongOrNull()?.takeIf { it > 0 }
+}
+
+internal const val CONTENT_RANGE_HEADER = "Content-Range"
+internal const val ACCEPT_RANGES_HEADER = "Accept-Ranges"
+
+internal fun isRangeUnsupported(headers: Map<String, List<String>>): Boolean =
+    headerValue(headers, ACCEPT_RANGES_HEADER)?.trim()?.equals("none", ignoreCase = true) == true
+
+internal fun sourceMode(headers: Map<String, List<String>>): String =
+    when {
+        isRangeUnsupported(headers) -> "range-none"
+        headerValue(headers, CONTENT_RANGE_HEADER) != null -> "206"
+        else -> "200"
+    }
 
 internal fun isoFingerprint(totalLength: Long, firstBytes: ByteArray): String {
     val digest = MessageDigest.getInstance("SHA-256").digest(firstBytes)
