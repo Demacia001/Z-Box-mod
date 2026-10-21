@@ -5988,3 +5988,21 @@ echo-exo-selector: mime=video/avc preferSoft=false count=3 first=c2.qti.avc.deco
 ```
 
 即四条件全对：`exceeds=true`、`tenBit=true`，文案分支命中，且整次终态只打一行（不重复）。
+
+## 解码回退改为双向（软→硬，2026-10-22）
+
+**背景**：此前只有「硬解失败 → 切软解重播」一个方向；软解档失败时没有任何档位回退（`trySoftDecodeFallback` 第一道判断就是档位必须为「硬解码」）。用户要求补齐对称逻辑。
+
+**落地（4 文件 + 1 测试）**：
+
+- `PlaybackRetryDelegate`：`trySoftDecodeFallback()` → `tryDecodeFallback()`，按 cfg `exo` 决定方向（`硬解码`→`软解码` / `软解码`→`硬解码`），改档、`applyPlayerConfig`、`releasePlayer`、原地址重播、toast 全部复用；日志 `echo-autoRetry hard->soft decode` / `echo-autoRetry soft->hard decode`；调用点同步改名。
+- `PlayerHelper.shouldSkipHardDecodeFallback(hardCandidateName, currentCodecName, currentKind)`：两种情况跳过 —— ①实际 codec 已是硬解器（软解档下内核会按 format 能力把硬解重排到第一位，HDR / 10bit 常见）；②当前是软解器、但 `MediaCodecSelector.DEFAULT` 首候选就是同一个它（设备没有硬解器，如 MuMu 的 HEVC），换档后真实 codec 不变。候选查询失败（`runCatching` 得 null）一律不跳过（fail-open）；日志 `echo-autoRetry skip hard decode: kind=… current=… candidate=…`。
+- `strings.xml` / `values-en` / `values-b+zh+Hant`：新增 `player_decode_fallback_hard_tip`（简「软解失败，已切换硬解重试」/ 繁「軟解失敗，已切換硬解重試」/ 英「Software decoding failed. Retrying with hardware decoding」）。
+- `PlayerHelperTest` +1：`hardDecodeFallbackSkippedOnlyWhenHardwareAlreadyInUse`。
+- 面板刷新时序：`applyPlayerConfig(cfg)` 从 `releasePlayer()` 之前挪到之后（`playUrl` 之前）。原顺序下 `setPlayerConfig → refreshParamsSheet` 读到的是切换前的 `PlayerCodecStats.videoDecodeKind`，面板（若正开着）会被旧 kind 盖住新档位，且此后 `onCodecInitialized` 只写静态统计、无 UI 通知 ⇒ 一直停在旧值；挪到 release 后读到的 kind 是 `UNKNOWN`，按 `decodeDisplayIndex` 的「未初始化回落档位」口径立即显示目标档位。`setRenderViewFactory` 只赋字段、`setScreenScaleType` 对可能为 null 的 renderView 判空，release 后调用安全。
+
+**未改**：额度仍是单布尔 `hasAutoSwitchedDecode`（一轮内只能切一个方向，天然防「硬→软→硬」振荡）；`restoreAutoSwitchedDecode` / `playerCfgForPersist` / 3 处 `cancelPlayTimeout` 断环方向无关，零改动；音频轨错误、`pl>=10`、`ERROR_KIND_NETWORK` 三类拦截原样继承；`onCodecInitialized` 后通知面板（需跨 renderer/engine/controller）未做。
+
+**审查结论（10-22，收敛：0 阻断 / 0 高 / 0 中）**：F1 已接受 —— 回退刷新时 `PictureEffects.onPlayerReleased` 已把 `current` 置空，面板画质 tab 的 `unavailableReason` 会从真实原因退成 `None`（只少一条提示，重开面板恢复；彻底修需新增「只刷解码项」接口，跨 4 文件）；F3 既有 —— `videoDecodeKind` 无时序，复用内核起播时可携带上一部片的值，只导致少一次回退；F4 口味差异 —— 起播超时 / `ERROR_KIND_UNKNOWN` 在软解档同样会触发切档（`classifyError` 只把 IO/PARSING 归 NETWORK），与既有硬→软对称。
+
+**验证**：`assembleDebug` + `testDebugUnitTest` → `BUILD SUCCESSFUL`（36s），**1350 例 / 0 失败**（`PlayerHelperTest` 12/12）；已装 MuMu（`127.0.0.1:16384`）。**未真机**。**走查判据**：软解档播放失败时日志出现 `soft->hard decode` + toast「软解失败，已切换硬解重试」，面板开着时「解码方式」应立即变成「硬解码」，面板档位不落库、换线后恢复软解档；HDR 源或设备无硬解时应只见 `skip hard decode`（带 `kind=` / `candidate=`）而不重播。**未提交**。

@@ -531,6 +531,7 @@
     <string name="player_iso_bandwidth_low">網盤限速，頻寬不足</string>
     <string name="player_play_error_retry">播放出錯，自動重試</string>
     <string name="player_decode_fallback_tip">硬解失敗，已切換軟解重試</string>
+    <string name="player_decode_fallback_hard_tip">軟解失敗，已切換硬解重試</string>
     <string name="player_audio_track_fallback_tip">音軌無法解碼，自動切換</string>
     <string name="player_call_external_play">推送到%1$s進行播放</string>
     <string name="player_call_external_result">推送到%1$s%2$s</string>

@@ -23,7 +23,6 @@ import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.rememberScrollState
-import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.BottomSheetDefaults
 import androidx.compose.material3.ExperimentalMaterial3Api
@@ -54,6 +53,9 @@ import androidx.compose.ui.layout.onGloballyPositioned
 import androidx.compose.ui.platform.LocalFocusManager
 import androidx.compose.ui.platform.LocalSoftwareKeyboardController
 import androidx.compose.ui.unit.dp
+import com.github.tvbox.osc.ui.theme.ContinuousDialog
+import com.github.tvbox.osc.ui.theme.ContinuousSheetStart
+import com.github.tvbox.osc.ui.theme.ContinuousSheetTop
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.launch
 
@@ -184,7 +186,6 @@ private const val DIALOG_ENTER_SCALE = 0.90f
 private const val DIALOG_SCRIM_ALPHA = 0.6f
 private val DialogMinWidth = 280.dp
 private val DialogMaxWidth = 560.dp
-private val DialogShape = RoundedCornerShape(28.dp)
 private val DIALOG_HORIZONTAL_MARGIN = 24.dp
 
 private const val SHEET_DRAG_DISMISS_FRACTION = 0.25f
@@ -432,9 +433,9 @@ private fun SheetSurface(
                         panelWidthPx = it.size.width
                     },
                 shape = when {
-                    centered -> DialogShape
-                    fromEnd -> RoundedCornerShape(topStart = 28.dp, bottomStart = 28.dp)
-                    else -> RoundedCornerShape(topStart = 28.dp, topEnd = 28.dp)
+                    centered -> ContinuousDialog
+                    fromEnd -> ContinuousSheetStart
+                    else -> ContinuousSheetTop
                 },
                 color = containerColor ?: BottomSheetDefaults.ContainerColor,
             ) {

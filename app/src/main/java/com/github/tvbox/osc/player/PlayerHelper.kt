@@ -133,6 +133,18 @@ object PlayerHelper {
     }
 
     @JvmStatic
+    fun shouldSkipHardDecodeFallback(
+        hardCandidateName: String?,
+        currentCodecName: String?,
+        currentKind: PlayerDecodeKind,
+    ): Boolean {
+        if (currentKind == PlayerDecodeKind.HARDWARE) return true
+        if (currentCodecName.isNullOrEmpty()) return false
+        if (hardCandidateName.isNullOrEmpty()) return false
+        return hardCandidateName == currentCodecName
+    }
+
+    @JvmStatic
     fun getPlayerName(playType: Int): String {
         return when (playType) {
             13 -> str(R.string.player_nearby_tvbox)

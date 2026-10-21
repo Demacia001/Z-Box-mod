@@ -165,44 +165,79 @@ class PlaybackRetryDelegate(private val host: Host) {
         }.getOrNull()?.firstOrNull()?.name
     }
 
-    private fun trySoftDecodeFallback(): Boolean {
+    private fun hardDecodeCandidateName(): String? {
+        val exo = host.view()?.mediaPlayer() as? ExoPlayer ?: return null
+        val mime = exo.selectedVideoFormat?.sampleMimeType ?: return null
+        return runCatching {
+            MediaCodecSelector.DEFAULT.getDecoderInfos(mime, false, false)
+        }.getOrNull()?.firstOrNull()?.name
+    }
+
+    private fun tryDecodeFallback(): Boolean {
         if (exoLastErrorTrackKind() == ExoPlayer.ERROR_TRACK_AUDIO) return false
         val st = host.attemptState()
         val cfg = host.playerCfg() ?: return false
         if (st.hasAutoSwitchedDecode) return false
         if (cfg.optInt("pl", 2) >= 10) return false
         val decodeKey = "exo"
-        if ("硬解码" != cfg.optString(decodeKey, "")) return false // i18n: keep —— 已经是软解,不再回退
+        val toSoftware = when (cfg.optString(decodeKey, "")) {
+            "硬解码" -> true // i18n: keep
+            "软解码" -> false // i18n: keep
+            else -> return false
+        }
         val currentCodec = PlayerCodecStats.videoDecoderName
-        if (PlayerHelper.shouldSkipSoftDecodeFallback(
-                softwareDecodeCandidateName(),
-                currentCodec,
-                PlayerCodecStats.videoDecodeKind,
-            )
-        ) {
-            LOG.i("echo-autoRetry skip soft decode: software target already in use ($currentCodec)")
-            return false
+        if (toSoftware) {
+            if (PlayerHelper.shouldSkipSoftDecodeFallback(
+                    softwareDecodeCandidateName(),
+                    currentCodec,
+                    PlayerCodecStats.videoDecodeKind,
+                )
+            ) {
+                LOG.i("echo-autoRetry skip soft decode: software target already in use ($currentCodec)")
+                return false
+            }
+        } else {
+            val hardCandidate = hardDecodeCandidateName()
+            if (PlayerHelper.shouldSkipHardDecodeFallback(
+                    hardCandidate,
+                    currentCodec,
+                    PlayerCodecStats.videoDecodeKind,
+                )
+            ) {
+                LOG.i(
+                    "echo-autoRetry skip hard decode: kind=${PlayerCodecStats.videoDecodeKind}" +
+                        " current=$currentCodec candidate=$hardCandidate",
+                )
+                return false
+            }
         }
         val webUrl = host.webPlayUrl() ?: return false
         if (TextUtils.isEmpty(webUrl)) return false
         val oldDecode = cfg.optString(decodeKey, "")
         try {
-            cfg.put(decodeKey, "软解码") // i18n: keep
+            cfg.put(decodeKey, if (toSoftware) "软解码" else "硬解码") // i18n: keep
         } catch (th: Throwable) {
             return false
         }
-        LOG.i("echo-autoRetry hard->soft decode: " + host.webPlayUrl())
+        LOG.i(
+            (if (toSoftware) "echo-autoRetry hard->soft decode: " else "echo-autoRetry soft->hard decode: ") + webUrl,
+        )
         st.autoSwitchedDecodeOld = oldDecode
         st.autoSwitchedDecodeKey = decodeKey
         st.hasAutoSwitchedDecode = true
-        val view = host.view()
-        view?.applyPlayerConfig(cfg)
         host.stopParse()
         host.initParseLoadFound()
+        val view = host.view()
         if (view != null && view.isPageAlive()) {
-            view.runOnUi { view.toast(PlaybackController.str(R.string.player_decode_fallback_tip)) }
+            val tip = if (toSoftware) {
+                R.string.player_decode_fallback_tip
+            } else {
+                R.string.player_decode_fallback_hard_tip
+            }
+            view.runOnUi { view.toast(PlaybackController.str(tip)) }
         }
         view?.releasePlayer()
+        view?.applyPlayerConfig(cfg)
         if (view != null) host.playUrl(webUrl, host.webHeaderMap())
         return true
     }
@@ -352,7 +387,7 @@ class PlaybackRetryDelegate(private val host: Host) {
         ) {
             return tryAudioTrackFallback()
         }
-        if (exoErrorKind != ExoPlayer.ERROR_KIND_NETWORK && trySoftDecodeFallback()) return true
+        if (exoErrorKind != ExoPlayer.ERROR_KIND_NETWORK && tryDecodeFallback()) return true
         if (webUrl != null) {
             if (st.allowSwitchPlayer && !st.hasAutoSwitchedPlayer) {
                 LOG.i("echo-autoRetry switch player and replay current url")

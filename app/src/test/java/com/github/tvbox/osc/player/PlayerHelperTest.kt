@@ -127,6 +127,34 @@ class PlayerHelperTest {
     }
 
     @Test
+    fun hardDecodeFallbackSkippedWhenHardwareTargetIsCurrentOrAbsent() {
+        assertTrue(
+            PlayerHelper.shouldSkipHardDecodeFallback(
+                "c2.qti.hevc.decoder",
+                "c2.qti.hevc.decoder",
+                PlayerDecodeKind.HARDWARE,
+            ),
+        )
+        assertTrue(
+            PlayerHelper.shouldSkipHardDecodeFallback(
+                "OMX.google.hevc.decoder",
+                "OMX.google.hevc.decoder",
+                PlayerDecodeKind.SOFTWARE,
+            ),
+        )
+        assertFalse(
+            PlayerHelper.shouldSkipHardDecodeFallback(
+                "c2.qti.hevc.decoder",
+                "OMX.google.hevc.decoder",
+                PlayerDecodeKind.SOFTWARE,
+            ),
+        )
+        assertFalse(PlayerHelper.shouldSkipHardDecodeFallback(null, "OMX.google.hevc.decoder", PlayerDecodeKind.SOFTWARE))
+        assertFalse(PlayerHelper.shouldSkipHardDecodeFallback("c2.qti.hevc.decoder", null, PlayerDecodeKind.SOFTWARE))
+        assertFalse(PlayerHelper.shouldSkipHardDecodeFallback("c2.qti.hevc.decoder", "OMX.google.hevc.decoder", PlayerDecodeKind.UNKNOWN))
+    }
+
+    @Test
     fun decodeDisplayIndex_actualKindWinsOverConfigured() {
         assertEquals(1, PlayerHelper.decodeDisplayIndex(PlayerDecodeKind.SOFTWARE, "硬解码"))
         assertEquals(1, PlayerHelper.decodeDisplayIndex(PlayerDecodeKind.SOFTWARE, "软解码"))

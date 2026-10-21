@@ -531,6 +531,7 @@
     <string name="player_iso_bandwidth_low">Network drive is throttled: not enough bandwidth</string>
     <string name="player_play_error_retry">Playback error. Retrying automatically</string>
     <string name="player_decode_fallback_tip">Hardware decoding failed. Retrying with software decoding</string>
+    <string name="player_decode_fallback_hard_tip">Software decoding failed. Retrying with hardware decoding</string>
     <string name="player_audio_track_fallback_tip">Audio track cannot be decoded. Switching automatically</string>
     <string name="player_call_external_play">Casting to %1$s</string>
     <string name="player_call_external_result">Cast to %1$s: %2$s</string>

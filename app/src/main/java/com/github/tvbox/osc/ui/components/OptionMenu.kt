@@ -32,6 +32,8 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import com.github.tvbox.osc.R
+import com.github.tvbox.osc.ui.theme.ContinuousMenuContainer
+import com.github.tvbox.osc.ui.theme.ContinuousMenuItem
 
 private val OptionMenuMinWidth = 156.dp
 
@@ -50,7 +52,7 @@ fun AVBoxOptionMenu(
         expanded = expanded,
         onDismissRequest = onDismissRequest,
         modifier = modifier,
-        shape = MaterialTheme.shapes.medium,
+        shape = ContinuousMenuContainer,
         containerColor = MaterialTheme.colorScheme.surfaceContainer,
         shadowElevation = 4.dp,
     ) {
@@ -112,7 +114,7 @@ private fun OptionMenuCard(
 ) {
     Surface(
         onClick = onClick,
-        shape = MaterialTheme.shapes.small,
+        shape = ContinuousMenuItem,
         color = MaterialTheme.colorScheme.surfaceBright,
         modifier = Modifier.fillMaxWidth(),
     ) {

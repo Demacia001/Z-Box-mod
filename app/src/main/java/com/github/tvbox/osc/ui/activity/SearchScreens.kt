@@ -72,6 +72,8 @@ import com.github.tvbox.osc.ui.components.PressableCard
 import com.github.tvbox.osc.ui.components.VodPoster
 import com.github.tvbox.osc.ui.components.clearFocusOnDrag
 import com.github.tvbox.osc.ui.components.glassSurface
+import com.github.tvbox.osc.ui.theme.ContinuousMenuContainer
+import com.github.tvbox.osc.ui.theme.ContinuousMenuItem
 import com.github.tvbox.osc.ui.theme.cardContainer
 
 @OptIn(ExperimentalFoundationApi::class)
@@ -126,7 +128,7 @@ internal fun LayoutSwitchAction(
         DropdownMenu(
             expanded = expanded,
             onDismissRequest = { expanded = false },
-            shape = MaterialTheme.shapes.medium,
+            shape = ContinuousMenuContainer,
             containerColor = MaterialTheme.colorScheme.surfaceContainer,
             shadowElevation = 4.dp,
         ) {
@@ -168,7 +170,7 @@ internal fun LayoutSwitchCard(
 ) {
     Surface(
         onClick = onClick,
-        shape = MaterialTheme.shapes.small,
+        shape = ContinuousMenuItem,
         color = MaterialTheme.colorScheme.surfaceBright,
         modifier = Modifier.fillMaxWidth(),
     ) {
