@@ -868,10 +868,8 @@ class DetailViewModel : ViewModel() {
         qualitySelected.value = 0
     }
 
-    fun onQualityClick(position: Int, facts: DetailPlaybackFacts) {
-        val plan = DetailPlaybackPolicy.plan(DetailPlaybackEntry.Quality)
-        if (plan.enterFullScreen) onFullScreenToggleRequested(true, facts)
-        if (plan.startPlayback) sendCommand(PlaybackCommand.SelectQuality(position))
+    fun switchQuality(position: Int) {
+        sendCommand(PlaybackCommand.SelectQuality(position))
     }
 
     fun onQualitySelectionAccepted(position: Int) {

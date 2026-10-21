@@ -122,6 +122,66 @@ class BootGuardTest {
     }
 
     @Test
+    fun withinLoadWindow_onlyNativeCrashRightAfterLoadCounts() {
+        assertTrue(BootGuard.withinLoadWindow(LOAD + 8_000, LOAD))
+        assertFalse("超过 8 秒就不再归因给该 jar", BootGuard.withinLoadWindow(LOAD + 8_001, LOAD))
+        assertFalse(BootGuard.withinLoadWindow(LOAD - 1, LOAD))
+        assertFalse(BootGuard.withinLoadWindow(LOAD + 1, 0))
+    }
+
+    @Test
+    fun pickSource_followsJarScope() {
+        assertEquals("live", BootGuard.pickSource(BootGuard.SCOPE_LIVE, "live", "vod"))
+        assertEquals("vod", BootGuard.pickSource(BootGuard.SCOPE_VOD, "live", "vod"))
+        assertEquals("live", BootGuard.pickSource("", "live", "vod"))
+        assertEquals("vod", BootGuard.pickSource("", "", "vod"))
+        assertEquals("", BootGuard.pickSource("", "", ""))
+        assertEquals("", BootGuard.pickSource(null, null, null))
+        assertEquals("vod", BootGuard.pickSource(BootGuard.SCOPE_LIVE, "", "vod"))
+        assertEquals("live", BootGuard.pickSource(BootGuard.SCOPE_VOD, "live", ""))
+    }
+
+    @Test
+    fun resolveSourceUrl_prefersOwningSubscription() {
+        assertEquals("http://a/main", BootGuard.resolveSourceUrl("http://a/line2", "http://a/main", true))
+        assertEquals("http://a/line2", BootGuard.resolveSourceUrl("http://a/line2", "http://a/main", false))
+        assertEquals("http://a/main", BootGuard.resolveSourceUrl("http://a/main", "", true))
+        assertEquals("", BootGuard.resolveSourceUrl(null, null, true))
+    }
+
+    @Test
+    fun removeDisabledJar_blankUrlKeepsEntries() {
+        var list = BootGuard.addDisabledJar(ArrayList(), "http://a/1", "/x/a.jar")
+        list = BootGuard.addDisabledJar(list, "http://b/2", "/x/b.jar")
+        assertEquals(2, BootGuard.removeDisabledJar(list, "").size)
+        assertEquals(2, BootGuard.removeDisabledJar(list, null).size)
+    }
+
+    @Test
+    fun addDisabledJar_keepsSourceAndDedups() {
+        val list = BootGuard.addDisabledJar(ArrayList(), "http://a/1", "/x/a.jar")
+        assertEquals(1, list.size)
+        assertEquals("http://a/1\t/x/a.jar", list[0])
+        assertEquals(1, BootGuard.addDisabledJar(list, "http://a/1", "/x/a.jar").size)
+    }
+
+    @Test
+    fun addDisabledJar_ignoresBlankJar() {
+        assertTrue(BootGuard.addDisabledJar(ArrayList(), "http://a/1", "").isEmpty())
+        assertTrue(BootGuard.addDisabledJar(ArrayList(), "http://a/1", null).isEmpty())
+    }
+
+    @Test
+    fun removeDisabledJar_dropsOnlyThatSource() {
+        var list = BootGuard.addDisabledJar(ArrayList(), "http://a/1", "/x/a.jar")
+        list = BootGuard.addDisabledJar(list, "http://b/2", "/x/b.jar")
+        val left = BootGuard.removeDisabledJar(list, "http://a/1")
+        assertEquals(1, left.size)
+        assertEquals("http://b/2\t/x/b.jar", left[0])
+        assertTrue(BootGuard.removeDisabledJar(null, "http://a/1").isEmpty())
+    }
+
+    @Test
     fun uiCrashIsNotSourceRelated() {
         val crash = crashWith(
             frame("java.util.ArrayList\$Itr", "checkForComodification"),
@@ -190,6 +250,24 @@ class BootGuardTest {
         val suppressed = crashWith(frame("com.github.catvod.spider.GoProxy", "init"))
         crash.addSuppressed(suppressed)
         assertTrue(BootGuard.looksSourceRelated(crash))
+    }
+
+    @Test
+    fun hostOnlyCrashIsNotSourceRelated() {
+        val utilCrash = crashWith(
+            frame("java.lang.NoSuchMethodError", "<init>"),
+            frame("com.github.tvbox.osc.util.FileUtils", "copyFile"),
+            frame("com.github.tvbox.osc.api.ApiConfig", "loadConfig"),
+            frame("com.github.tvbox.osc.sourcedata.SourceHelper", "fillSource"),
+            frame("com.android.internal.os.RuntimeInit", "main"),
+        )
+        assertFalse(BootGuard.looksSourceRelated(utilCrash))
+        val playerCrash = crashWith(
+            frame("com.github.tvbox.osc.player.PlaybackEngine", "onPlayerError"),
+            frame("android.os.Handler", "dispatchMessage"),
+            frame("com.android.internal.os.RuntimeInit", "main"),
+        )
+        assertFalse(BootGuard.looksSourceRelated(playerCrash))
     }
 
     @Test

@@ -301,7 +301,7 @@
     <string name="dialog_kernel_prewarm_cancel">我不开了</string>
     <string name="dialog_api_url_hint">请输入 API 地址</string>
     <string name="dialog_source_disabled_title">该源已被自动停用</string>
-    <string name="dialog_source_disabled_message">「%1$s」此前导致应用崩溃，已被自动停用。\n\n若该源已经修好，可以重新启用；否则切换后很可能再次闪退。</string>
+    <string name="dialog_source_disabled_message">「%1$s」此前导致应用崩溃，已被自动停用。\n\n若该源已经修好，可以重新启用，否则切换后很可能再次闪退。</string>
     <string name="dialog_source_disabled_confirm">仍要启用</string>
 
     <string name="toast_cache_cleared">清理成功</string>
@@ -325,7 +325,6 @@
     <string name="detail_source">来源：%1$s</string>
     <string name="detail_collapse">收起</string>
     <string name="detail_expand">展开</string>
-    <string name="detail_quality">清晰度</string>
     <string name="detail_line">线路</string>
     <string name="detail_line_video_count">共 %1$d 个视频</string>
     <string name="detail_episodes">选集</string>

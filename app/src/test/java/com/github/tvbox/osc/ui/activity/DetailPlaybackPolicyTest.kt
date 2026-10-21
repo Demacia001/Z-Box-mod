@@ -26,14 +26,6 @@ class DetailPlaybackPolicyTest {
     }
 
     @Test
-    fun qualityEntryStartsAndEntersFullScreen() {
-        val plan = decide(DetailPlaybackEntry.Quality)
-        assertTrue(plan.startPlayback)
-        assertTrue(plan.enterFullScreen)
-        assertFalse(plan.stopPlayback)
-    }
-
-    @Test
     fun lineNeverStartsAndNeverEntersFullScreen() {
         val plan = decide(DetailPlaybackEntry.Line)
         assertFalse(plan.startPlayback)
@@ -102,8 +94,7 @@ class DetailPlaybackPolicyTest {
         for (entry in DetailPlaybackEntry.entries) {
             val plan = decide(entry, resumable = true)
             val shouldEnterFullScreen = entry == DetailPlaybackEntry.PlayCapsule ||
-                entry == DetailPlaybackEntry.Episode ||
-                entry == DetailPlaybackEntry.Quality
+                entry == DetailPlaybackEntry.Episode
             if (shouldEnterFullScreen) {
                 assertTrue("$entry 应进全屏", plan.enterFullScreen)
             } else {
@@ -118,7 +109,6 @@ class DetailPlaybackPolicyTest {
             val plan = decide(entry, resumable = true)
             val shouldStart = entry == DetailPlaybackEntry.PlayCapsule ||
                 entry == DetailPlaybackEntry.Episode ||
-                entry == DetailPlaybackEntry.Quality ||
                 entry == DetailPlaybackEntry.SwitchRollback ||
                 entry == DetailPlaybackEntry.MusicReturn
             if (shouldStart) {

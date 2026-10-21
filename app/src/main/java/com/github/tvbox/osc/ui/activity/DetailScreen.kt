@@ -353,7 +353,7 @@ fun DetailScreen(activity: DetailActivity, vm: DetailViewModel) {
             }
         }
 
-        EpisodeSheet(vm, revision, slideFromEnd = fullBox && isLandscapeNow)
+        EpisodeSheet(vm, revision, slideFromEnd = fullBox && isLandscapeNow, showQuality = full)
         VodCardMenu(vodMenu) { menuContext.jumpToSearch(it) }
     }
 }

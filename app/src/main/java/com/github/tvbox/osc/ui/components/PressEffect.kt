@@ -15,9 +15,11 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.unit.dp
 
+internal val PressMorphCornerRadius = 8.dp
+
 internal val PressMorphButtonShapes = ButtonShapes(
     shape = RoundedCornerShape(percent = 50),
-    pressedShape = RoundedCornerShape(8.dp),
+    pressedShape = RoundedCornerShape(PressMorphCornerRadius),
 )
 
 private const val PressScaleDamping = 0.6f

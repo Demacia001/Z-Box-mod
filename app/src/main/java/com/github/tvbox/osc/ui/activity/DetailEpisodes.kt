@@ -120,10 +120,18 @@ internal fun EpisodeRow(
         val episodeNumbers = remember(episodes, info.reverseSort) {
             episodes.map { EpisodeMatcher.extractEpisodeNumber(it.name) }
         }
-        val episodeMeta = rememberEpisodeMeta(info.name, info.en, info.year, episodes.size, seasonHint, episodeNumbers)
-        val movieMatch = episodeMeta != null && episodeMeta.isEmpty()
-        LaunchedEffect(playIndex, currentFlag, episodes.size, info.reverseSort, movieMatch) {
-            if (movieMatch || episodes.isEmpty()) return@LaunchedEffect
+        val episodeMeta = rememberEpisodeMeta(
+            info.name,
+            info.en,
+            info.year,
+            episodes.size,
+            seasonHint,
+            episodeNumbers,
+            info.reverseSort,
+        )
+        val thumbnails = !episodeMeta.isNullOrEmpty()
+        LaunchedEffect(playIndex, currentFlag, episodes.size, info.reverseSort) {
+            if (episodes.isEmpty()) return@LaunchedEffect
             val reverseChanged = info.reverseSort != prevReverseSort
             prevReverseSort = info.reverseSort
             if (reverseChanged) {
@@ -132,35 +140,26 @@ internal fun EpisodeRow(
                 listState.scrollToItem(minOf(playIndex, episodes.size - 1))
             }
         }
-        if (movieMatch) {
-            Column(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(horizontal = 16.dp),
-                verticalArrangement = Arrangement.spacedBy(8.dp),
-            ) {
-                episodes.forEachIndexed { index, ep ->
-                    MovieNameCard(
-                        name = ep.name ?: (index + 1).toString(),
-                        selected = index == playIndex,
-                        onClick = { vm.onEpisodeClick(index) },
-                    )
-                }
-            }
-        } else {
-            LazyRow(
-                state = listState,
-                contentPadding = PaddingValues(horizontal = 16.dp),
-                horizontalArrangement = Arrangement.spacedBy(10.dp),
-            ) {
-                itemsIndexed(episodes) { index, ep ->
+        LazyRow(
+            state = listState,
+            contentPadding = PaddingValues(horizontal = 16.dp),
+            horizontalArrangement = Arrangement.spacedBy(10.dp),
+        ) {
+            itemsIndexed(episodes) { index, ep ->
+                if (thumbnails) {
                     EpisodeCard(
                         name = ep.name ?: (index + 1).toString(),
                         episodeNumber = episodeNumbers.getOrNull(index)?.takeIf { it > 0 } ?: (index + 1),
-                        thumbEnabled = episodeMeta != null,
                         episode = episodeMeta?.getOrNull(index),
                         selected = index == playIndex,
                         onClick = { vm.onEpisodeClick(index) },
+                    )
+                } else {
+                    EpisodeNameCard(
+                        name = ep.name ?: (index + 1).toString(),
+                        selected = index == playIndex,
+                        onClick = { vm.onEpisodeClick(index) },
+                        modifier = Modifier.fillParentMaxWidth(),
                     )
                 }
             }
@@ -176,45 +175,39 @@ private fun rememberEpisodeMeta(
     episodeCount: Int,
     seasonHint: Int?,
     episodeNumbers: List<Int>,
+    reversed: Boolean,
 ): List<TmdbApi.TmdbEpisode>? {
-    if (name.isNullOrBlank() || episodeCount <= 0) return null
-    val epoch by TmdbPoster.configEpoch.collectAsState()
-    var meta by remember(name, altName, episodeCount, seasonHint, episodeNumbers, epoch) {
-        mutableStateOf(TmdbPoster.cachedEpisodeMeta(name, episodeCount, seasonHint, episodeNumbers, altName))
+    val enabled = !name.isNullOrBlank() && episodeCount > 0
+    val sourceOrder = remember(episodeNumbers, reversed) {
+        if (reversed) episodeNumbers.reversed() else episodeNumbers
     }
-    LaunchedEffect(name, altName, episodeCount, seasonHint, episodeNumbers, epoch) {
-        if (meta == null) {
-            meta = TmdbPoster.resolveEpisodeMeta(name, year, episodeCount, seasonHint, episodeNumbers, altName)
+    val epoch by TmdbPoster.configEpoch.collectAsState()
+    var meta by remember(name, altName, episodeCount, seasonHint, sourceOrder, epoch) {
+        mutableStateOf(
+            if (enabled) {
+                TmdbPoster.cachedEpisodeMeta(name, episodeCount, seasonHint, sourceOrder, altName)
+            } else {
+                null
+            },
+        )
+    }
+    LaunchedEffect(name, altName, episodeCount, seasonHint, sourceOrder, epoch) {
+        if (enabled && meta == null) {
+            meta = TmdbPoster.resolveEpisodeMeta(name, year, episodeCount, seasonHint, sourceOrder, altName)
         }
     }
-    return meta
+    if (!enabled) return null
+    return if (reversed) meta?.asReversed() else meta
 }
 
 @Composable
 private fun EpisodeCard(
     name: String,
     episodeNumber: Int,
-    thumbEnabled: Boolean,
     episode: TmdbApi.TmdbEpisode?,
     selected: Boolean,
     onClick: () -> Unit,
 ) {
-    if (!thumbEnabled) {
-        DetailItemCard(
-            selected = selected,
-            onClick = onClick,
-        ) {
-            Text(
-                text = name,
-                style = MaterialTheme.typography.titleMedium,
-                fontWeight = FontWeight.SemiBold,
-                color = MaterialTheme.colorScheme.onSurface,
-                maxLines = 1,
-                overflow = TextOverflow.Ellipsis,
-            )
-        }
-        return
-    }
     val stillPath = episode?.stillPath.orEmpty()
     val title = episode?.name?.takeIf { it.isNotBlank() } ?: name
     Column(
@@ -274,21 +267,15 @@ private fun EpisodeCard(
 }
 
 @Composable
-private fun MovieNameCard(name: String, selected: Boolean, onClick: () -> Unit) {
+private fun EpisodeNameCard(
+    name: String,
+    selected: Boolean,
+    onClick: () -> Unit,
+    modifier: Modifier = Modifier,
+) {
     val shape = RoundedCornerShape(16.dp)
-    Text(
-        text = name,
-        style = MaterialTheme.typography.titleMedium,
-        fontWeight = FontWeight.SemiBold,
-        color = if (selected) {
-            MaterialTheme.colorScheme.primary
-        } else {
-            MaterialTheme.colorScheme.onSurface
-        },
-        maxLines = Int.MAX_VALUE,
-        softWrap = true,
-        modifier = Modifier
-            .fillMaxWidth()
+    Box(
+        modifier = modifier
             .detailGlass(shape)
             .then(
                 if (selected) {
@@ -299,7 +286,22 @@ private fun MovieNameCard(name: String, selected: Boolean, onClick: () -> Unit) 
             )
             .clickable(onClick = onClick)
             .padding(horizontal = 14.dp, vertical = 12.dp),
-    )
+        contentAlignment = Alignment.Center,
+    ) {
+        Text(
+            text = name,
+            style = MaterialTheme.typography.titleMedium,
+            fontWeight = FontWeight.SemiBold,
+            color = if (selected) {
+                MaterialTheme.colorScheme.primary
+            } else {
+                MaterialTheme.colorScheme.onSurface
+            },
+            maxLines = Int.MAX_VALUE,
+            softWrap = true,
+            textAlign = TextAlign.Center,
+        )
+    }
 }
 
 @Composable
@@ -328,7 +330,7 @@ private fun PillAction(iconRes: Int, text: String, onClick: () -> Unit) {
 
 @OptIn(ExperimentalMaterial3Api::class, ExperimentalFoundationApi::class)
 @Composable
-internal fun EpisodeSheet(vm: DetailViewModel, revision: Int, slideFromEnd: Boolean) {
+internal fun EpisodeSheet(vm: DetailViewModel, revision: Int, slideFromEnd: Boolean, showQuality: Boolean) {
     @Suppress("UNUSED_EXPRESSION") revision
     val show by vm.episodeSheet.collectAsState()
     if (!show) return
@@ -336,6 +338,8 @@ internal fun EpisodeSheet(vm: DetailViewModel, revision: Int, slideFromEnd: Bool
     val currentFlag = info.playFlag
     val episodes = info.seriesMap?.get(currentFlag).orEmpty()
     val playIndex = info.playIndex
+    val qualityOptions by vm.qualityOptions.collectAsState()
+    val qualitySelected by vm.qualitySelected.collectAsState()
 
     val groupCount = when {
         episodes.size > 400 -> 120
@@ -382,6 +386,23 @@ internal fun EpisodeSheet(vm: DetailViewModel, revision: Int, slideFromEnd: Bool
     ) {
         val dismissAnimated = LocalSheetDismiss.current
         Column(modifier = Modifier.fillMaxWidth()) {
+            if (showQuality && qualityOptions.size > 1) {
+                LazyRow(
+                    contentPadding = PaddingValues(horizontal = 16.dp),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                ) {
+                    itemsIndexed(qualityOptions) { index, option ->
+                        FilterChip(
+                            selected = index == qualitySelected,
+                            onClick = { vm.switchQuality(index) },
+                            label = { Text(option) },
+                            shape = RoundedCornerShape(20.dp),
+                            colors = MaterialTheme.colorScheme.filterChipColors(),
+                        )
+                    }
+                }
+                Spacer(modifier = Modifier.height(12.dp))
+            }
             if (groups.isNotEmpty()) {
                 LazyRow(
                     contentPadding = PaddingValues(horizontal = 16.dp),

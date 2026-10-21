@@ -42,7 +42,9 @@
 jar 地址)、`boot_loading_count`(Long,同源累计装载次数)、`boot_last_attempt_at`(Long,上次装载时刻,
 用于"距上次太久就重新计数")、`boot_load_start_elapsed`(Long,本次进程开始装载 jar 的开机计时,
 与崩溃标记同源比较)、`boot_vod_source` / `boot_live_source`(String,崩溃时正在使用的启动源)、
-`boot_safe_disabled`(String,被自动停用的源地址,UI 读后即清)。⚠️ 崩溃时刻**不在 KV 里** ——
+`boot_safe_disabled`(String,被自动停用的源地址,UI 读后即清)、`boot_loading_scope`(String,当前装载
+jar 的归属 `vod`/`live`,2026-10-21 新增)、`boot_disabled_jars`(ArrayList<String>,jar 级停用条目
+`url\tjar路径`,2026-10-21 新增,与 `boot_disabled_sources` 配合使用)。⚠️ 崩溃时刻**不在 KV 里** ——
 它必须同步落盘,走 `files/boot_crash.marker`(原因见 §4.1 的异步写说明)。
 
 ### 1.3 为什么迁(Hawk 2.0.1 的硬伤)

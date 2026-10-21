@@ -3,7 +3,6 @@ package com.github.tvbox.osc.ui.activity
 internal enum class DetailPlaybackEntry {
     PlayCapsule,
     Episode,
-    Quality,
     Line,
     Cast,
     ExitFullscreen,
@@ -21,8 +20,7 @@ internal object DetailPlaybackPolicy {
 
     fun plan(entry: DetailPlaybackEntry, resumable: Boolean = false): DetailPlaybackPlan = when (entry) {
         DetailPlaybackEntry.PlayCapsule,
-        DetailPlaybackEntry.Episode,
-        DetailPlaybackEntry.Quality -> DetailPlaybackPlan(startPlayback = true, enterFullScreen = true, stopPlayback = false)
+        DetailPlaybackEntry.Episode -> DetailPlaybackPlan(startPlayback = true, enterFullScreen = true, stopPlayback = false)
 
         DetailPlaybackEntry.SwitchRollback,
         DetailPlaybackEntry.MusicReturn -> DetailPlaybackPlan(startPlayback = resumable, enterFullScreen = false, stopPlayback = false)

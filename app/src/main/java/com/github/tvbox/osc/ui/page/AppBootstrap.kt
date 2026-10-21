@@ -133,7 +133,7 @@ object AppBootstrap {
                 if (dataInitOk && !jarInitOk) {
                     val err = awaitLoadJar()
                     jarInitOk = true
-                    if (err != null) toast(err + " jar load err")
+                    if (!err.isNullOrEmpty()) toast(err)
                 }
                 if (dataInitOk && jarInitOk && bootGeneration.isLatest(generation)) {
                     ApiConfig.get().warmSearchSpiders()

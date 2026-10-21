@@ -105,6 +105,7 @@ fun SearchSettingsSheet(onDismiss: () -> Unit, onSelectionChanged: () -> Unit) {
                 onOptionSelected = { HomeSettings.setLayout(it) },
                 style = SegmentStyle.Separated,
                 containerColor = MaterialTheme.colorScheme.surfaceBright,
+                pressMorph = true,
                 modifier = Modifier
                     .fillMaxWidth()
                     .padding(start = 16.dp, end = 16.dp, top = 8.dp, bottom = 4.dp),

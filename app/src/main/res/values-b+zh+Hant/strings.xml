@@ -325,7 +325,6 @@
     <string name="detail_source">來源：%1$s</string>
     <string name="detail_collapse">收合</string>
     <string name="detail_expand">展開</string>
-    <string name="detail_quality">畫質</string>
     <string name="detail_line">線路</string>
     <string name="detail_line_video_count">共 %1$d 個視頻</string>
     <string name="detail_episodes">選集</string>

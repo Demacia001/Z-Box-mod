@@ -82,6 +82,7 @@ internal fun PlayerParamsSheet(
                 modifier = Modifier.fillMaxWidth(),
                 style = SegmentStyle.Separated,
                 containerColor = MaterialTheme.colorScheme.surfaceBright,
+                pressMorph = true,
             )
             Spacer(Modifier.height(playerDim(R.dimen.vs_30)))
             when (tab) {

@@ -325,7 +325,6 @@
     <string name="detail_source">Source: %1$s</string>
     <string name="detail_collapse">Collapse</string>
     <string name="detail_expand">Expand</string>
-    <string name="detail_quality">Quality</string>
     <string name="detail_line">Line</string>
     <string name="detail_line_video_count">%1$d videos</string>
     <string name="detail_episodes">Episodes</string>

@@ -43,6 +43,18 @@ enum class SegmentStyle { Connected, Track, Separated }
 
 private val TrackShape = RoundedCornerShape(percent = 50)
 
+private val CapsuleToggleShapes = ToggleButtonShapes(
+    shape = TrackShape,
+    pressedShape = TrackShape,
+    checkedShape = TrackShape,
+)
+
+private val PressMorphCapsuleShapes = ToggleButtonShapes(
+    shape = TrackShape,
+    pressedShape = RoundedCornerShape(PressMorphCornerRadius),
+    checkedShape = TrackShape,
+)
+
 private val TrackPadding = 4.dp
 
 private val TrackSegmentSpacing = 4.dp
@@ -70,6 +82,7 @@ fun <T> CapsuleSegmentedButton(
     modifier: Modifier = Modifier,
     style: SegmentStyle = SegmentStyle.Connected,
     containerColor: Color = MaterialTheme.colorScheme.surfaceContainer,
+    pressMorph: Boolean = false,
 ) {
     val selectedIndex = options.indexOfFirst { it.value == selectedValue }.coerceAtLeast(0)
 
@@ -92,6 +105,7 @@ fun <T> CapsuleSegmentedButton(
                         index = index,
                         count = options.size,
                         style = style,
+                        pressMorph = pressMorph,
                         modifier = Modifier.weight(1f),
                     )
                 }
@@ -115,6 +129,7 @@ fun <T> CapsuleSegmentedButton(
                     count = options.size,
                     style = style,
                     containerColor = containerColor,
+                    pressMorph = pressMorph,
                     modifier = Modifier.weight(1f),
                 )
             }
@@ -136,6 +151,7 @@ fun <T> CapsuleSegmentedButton(
                 count = options.size,
                 style = style,
                 containerColor = containerColor,
+                pressMorph = pressMorph,
                 modifier = Modifier.weight(1f),
             )
         }
@@ -153,6 +169,7 @@ private fun <T> CapsuleToggleButton(
     style: SegmentStyle,
     modifier: Modifier = Modifier,
     containerColor: Color = MaterialTheme.colorScheme.surfaceContainerHighest,
+    pressMorph: Boolean = false,
 ) {
     val interactionSource = remember { MutableInteractionSource() }
     val isPressed by interactionSource.collectIsPressedAsState()
@@ -172,11 +189,7 @@ private fun <T> CapsuleToggleButton(
             checked = checked,
             onCheckedChange = onCheckedChange,
             modifier = segmentModifier,
-            shapes = ToggleButtonShapes(
-                shape = TrackShape,
-                pressedShape = TrackShape,
-                checkedShape = TrackShape,
-            ),
+            shapes = if (pressMorph) PressMorphCapsuleShapes else CapsuleToggleShapes,
             colors = ToggleButtonDefaults.colors(containerColor = MaterialTheme.colorScheme.surfaceBright),
             elevation = null,
             contentPadding = TrackContentPadding,
@@ -189,11 +202,7 @@ private fun <T> CapsuleToggleButton(
             checked = checked,
             onCheckedChange = onCheckedChange,
             modifier = segmentModifier,
-            shapes = ToggleButtonShapes(
-                shape = TrackShape,
-                pressedShape = TrackShape,
-                checkedShape = TrackShape,
-            ),
+            shapes = if (pressMorph) PressMorphCapsuleShapes else CapsuleToggleShapes,
             colors = ToggleButtonDefaults.colors(containerColor = containerColor),
             contentPadding = SeparatedContentPadding,
             interactionSource = interactionSource,
@@ -205,10 +214,23 @@ private fun <T> CapsuleToggleButton(
             checked = checked,
             onCheckedChange = onCheckedChange,
             modifier = segmentModifier,
-            shapes = when (index) {
-                0 -> ButtonGroupDefaults.connectedLeadingButtonShapes()
-                count - 1 -> ButtonGroupDefaults.connectedTrailingButtonShapes()
-                else -> ButtonGroupDefaults.connectedMiddleButtonShapes()
+            shapes = if (pressMorph) {
+                val base = when (index) {
+                    0 -> ButtonGroupDefaults.connectedLeadingButtonShapes()
+                    count - 1 -> ButtonGroupDefaults.connectedTrailingButtonShapes()
+                    else -> ButtonGroupDefaults.connectedMiddleButtonShapes()
+                }
+                ToggleButtonShapes(
+                    shape = base.shape,
+                    pressedShape = RoundedCornerShape(PressMorphCornerRadius),
+                    checkedShape = base.checkedShape,
+                )
+            } else {
+                when (index) {
+                    0 -> ButtonGroupDefaults.connectedLeadingButtonShapes()
+                    count - 1 -> ButtonGroupDefaults.connectedTrailingButtonShapes()
+                    else -> ButtonGroupDefaults.connectedMiddleButtonShapes()
+                }
             },
             colors = ToggleButtonDefaults.colors(containerColor = containerColor),
             interactionSource = interactionSource,

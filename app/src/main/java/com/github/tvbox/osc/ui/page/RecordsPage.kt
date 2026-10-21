@@ -228,6 +228,7 @@ fun RecordsPage(
                 onOptionSelected = { mode = it },
                 style = SegmentStyle.Track,
                 containerColor = MaterialTheme.colorScheme.surfaceContainer,
+                pressMorph = true,
                 modifier = Modifier
                     .fillMaxWidth()
                     .padding(start = 16.dp + navStart, end = 16.dp, top = topPad + 8.dp),

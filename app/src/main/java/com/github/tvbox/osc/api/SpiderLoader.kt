@@ -80,7 +80,7 @@ class SpiderLoader {
 
     private fun loadJarAsync(file: File?, callback: JarLoadCallback) {
         jarLoadExecutor.execute(Runnable {
-            if (file != null) BootGuard.onJarLoadStart(file.absolutePath)
+            if (file != null) BootGuard.onJarLoadStart(file.absolutePath, BootGuard.SCOPE_VOD)
             var success = false
             try {
                 success = file != null && file.exists() && jarLoader.load(file.absolutePath)
@@ -192,6 +192,12 @@ class SpiderLoader {
         var jarUrl = urls[0]
         val md5 = if (urls.size > 1) urls[1].trim { it <= ' ' } else ""
         val cache = File(requireNotNull(App.getInstance()) { "app instance not ready" }.getFilesDir().getAbsolutePath() + "/csp/" + MD5.string2MD5(jarUrl) + ".jar")
+
+        if (BootGuard.isJarDisabled(cache.absolutePath)) {
+            LOG.i("echo-boot-guard: skip disabled jar " + cache.absolutePath)
+            callback.success()
+            return
+        }
 
         if (!md5.isEmpty() || useCache) {
             if (cache.exists() && (useCache || MD5.getFileMd5(cache).equals(md5, ignoreCase = true))) {

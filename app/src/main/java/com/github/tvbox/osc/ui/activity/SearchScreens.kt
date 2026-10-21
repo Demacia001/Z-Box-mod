@@ -269,6 +269,7 @@ internal fun RailResults(
                     name = result.sourceName,
                     selected = selectedSource == result.sourceKey,
                     onClick = { onSelectSource(result.sourceKey) },
+                    modifier = Modifier.animateItem(),
                 )
             }
         }
@@ -357,7 +358,6 @@ private fun RailSiteFilterField(
                 singleLine = true,
                 textStyle = MaterialTheme.typography.bodyMedium.copy(
                     color = MaterialTheme.colorScheme.onSurface,
-                    fontWeight = FontWeight.Medium,
                 ),
                 cursorBrush = SolidColor(MaterialTheme.colorScheme.primary),
                 keyboardOptions = KeyboardOptions(imeAction = ImeAction.Search),
@@ -400,6 +400,7 @@ internal fun SearchRailItem(
     selected: Boolean,
     onClick: () -> Unit,
     iconRes: Int? = null,
+    modifier: Modifier = Modifier,
 ) {
     val contentColor = if (selected) {
         MaterialTheme.colorScheme.onPrimaryContainer
@@ -410,7 +411,7 @@ internal fun SearchRailItem(
         onClick = onClick,
         shape = RoundedCornerShape(16.dp),
         color = if (selected) MaterialTheme.colorScheme.primaryContainer else MaterialTheme.colorScheme.surfaceBright,
-        modifier = Modifier.fillMaxWidth(),
+        modifier = modifier.fillMaxWidth(),
     ) {
         Row(
             modifier = Modifier.padding(start = 10.dp, end = 8.dp, top = 12.dp, bottom = 12.dp),

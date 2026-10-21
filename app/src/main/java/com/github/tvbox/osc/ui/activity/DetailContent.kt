@@ -8,16 +8,12 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyListState
-import androidx.compose.foundation.lazy.LazyListScope
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.itemsIndexed
-import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.material3.FilterChip
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
@@ -65,8 +61,6 @@ internal fun DetailContent(
     val currentFlag = info.playFlag
     val episodes = info.seriesMap?.get(currentFlag).orEmpty()
     val playIndex = info.playIndex
-    val qualityOptions by vm.qualityOptions.collectAsState()
-    val qualitySelected by vm.qualitySelected.collectAsState()
     val collected by vm.collected.collectAsState()
     val followRecord by vm.follow.collectAsState()
     val description = remember(info.des) { removeHtmlTag(info.des) }
@@ -108,26 +102,6 @@ internal fun DetailContent(
         if (episodes.isNotEmpty()) {
             item(key = "episodes") {
                 EpisodeRow(vm, info, episodes, playIndex, currentFlag)
-            }
-        }
-
-        if (qualityOptions.size > 1) {
-            item(key = "quality") {
-                ChipRow(
-                    title = stringResource(R.string.detail_quality),
-                    leading = { SectionTitleIcon(painterResource(R.drawable.ic_detail_quality)) },
-                ) {
-                    itemsIndexed(qualityOptions) { index, option ->
-                        FilterChip(
-                            selected = index == qualitySelected,
-                            onClick = { vm.onQualityClick(index, activity.playbackFacts()) },
-                            label = { Text(option) },
-                            shape = RoundedCornerShape(20.dp),
-                            border = detailChipBorder(selected = index == qualitySelected),
-                            colors = detailChipColors(),
-                        )
-                    }
-                }
             }
         }
 
@@ -230,38 +204,6 @@ private fun LineCard(
             color = MaterialTheme.colorScheme.onSurfaceVariant,
             maxLines = 1,
             modifier = Modifier.padding(top = 6.dp),
-        )
-    }
-}
-
-@Composable
-private fun ChipRow(
-    title: String,
-    leading: (@Composable () -> Unit)? = null,
-    content: LazyListScope.() -> Unit,
-) {
-    Column(
-        modifier = Modifier
-            .fillMaxWidth()
-            .padding(top = 16.dp),
-    ) {
-        Row(
-            verticalAlignment = Alignment.CenterVertically,
-            modifier = Modifier.padding(start = 16.dp, end = 16.dp, bottom = 8.dp),
-        ) {
-            leading?.invoke()
-            Text(
-                text = title,
-                style = MaterialTheme.typography.titleLarge,
-                color = MaterialTheme.colorScheme.onSurface,
-                modifier = Modifier.padding(start = if (leading != null) 8.dp else 0.dp),
-            )
-        }
-        LazyRow(
-            modifier = Modifier.fillMaxWidth(),
-            contentPadding = PaddingValues(horizontal = 16.dp),
-            horizontalArrangement = Arrangement.spacedBy(8.dp),
-            content = content,
         )
     }
 }

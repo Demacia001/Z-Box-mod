@@ -11,6 +11,7 @@ import com.github.tvbox.osc.io.FileUtils
 import com.github.tvbox.osc.server.ControlManager
 import com.github.tvbox.osc.server.RemoteServer
 import com.github.tvbox.osc.util.AppContextHolder
+import com.github.tvbox.osc.util.BootGuard
 import com.github.tvbox.osc.util.LOG
 import com.github.tvbox.osc.util.MD5
 import com.github.tvbox.osc.util.RegexUtils
@@ -42,6 +43,7 @@ class JarLoader {
     private val locks = ConcurrentHashMap<String, Any>()
     private val siteJarKeys = ConcurrentHashMap<String, String>()
     private val aliases = ConcurrentHashMap<String, String>()
+    private val liveJars = ConcurrentHashMap.newKeySet<String>()
 
     @Volatile
     private var recent: String = MAIN_KEY
@@ -62,6 +64,7 @@ class JarLoader {
 
     fun loadLiveJar(jar: String?) {
         val key = jarKey(jar)
+        liveJars.add(key)
         parseJar(key, jar)
         setRecentJarKey(key)
     }
@@ -76,6 +79,7 @@ class JarLoader {
         spiders.clear()
         siteJarKeys.clear()
         aliases.clear()
+        liveJars.clear()
         recent = MAIN_KEY
         for (spider in stale) {
             SpiderReaper.retire(spider)
@@ -86,6 +90,14 @@ class JarLoader {
         if (Thread.interrupted()) return false
         if (!exists(file)) return false
         if (loaders.containsKey(key)) return true
+        if (BootGuard.isJarDisabled(file.absolutePath)) {
+            LOG.i("echo-boot-guard: blocked jar key=" + key + " file=" + file.absolutePath)
+            return false
+        }
+        if (key != MAIN_KEY) {
+            val scope = if (liveJars.contains(key)) BootGuard.SCOPE_LIVE else BootGuard.SCOPE_VOD
+            BootGuard.onJarLoadStart(file.absolutePath, scope)
+        }
         try {
             file.setReadOnly()
             val cachePath = jarDir().absolutePath
@@ -95,6 +107,7 @@ class JarLoader {
             invokeDanmaku(key, loader)
             injectProxyPort(loader)
             loaders[key] = loader
+            BootGuard.scheduleStableRunReset()
             LOG.i("echo--jar-load success key=" + key + ", file=" + file.absolutePath)
             return true
         } catch (e: Throwable) {
