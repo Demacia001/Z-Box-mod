@@ -55,7 +55,9 @@
     <string name="toast_subtitle_not_found">No matching subtitles found</string>
 
     <string name="player_error_sniff">Sniffing error</string>
-    <string name="player_error_play">Playback error</string>
+    <string name="player_error_play">Source playback failed. Try another line or source.</string>
+    <string name="player_error_play_http">Source playback failed (HTTP %1$d). Try another line or source.</string>
+    <string name="player_site_failed">%1$s: %2$s</string>
     <string name="player_decode_exceeds_capability">Exceeds the decoding capability limit</string>
     <string name="player_decode_10bit_tip">This line is 10-bit encoded, which this device does not support</string>
     <string name="player_no_audio_track">No audio track</string>
@@ -271,7 +273,7 @@
     <string name="music_previous">Previous</string>
     <string name="music_next">Next</string>
 
-    <string name="search_home_poster">Home posters</string>
+    <string name="search_home_poster">Poster style</string>
     <string name="search_layout_horizontal">Immersive</string>
     <string name="search_layout_vertical">Standard</string>
     <string name="search_result_layout_horizontal">Card view</string>
@@ -529,7 +531,7 @@
     <string name="player_source_invalid">This line returned incomplete data</string>
     <string name="player_iso_cast_unsupported">Casting is not supported for Blu-ray ISO images</string>
     <string name="player_iso_bandwidth_low">Network drive is throttled: not enough bandwidth</string>
-    <string name="player_play_error_retry">Playback error. Retrying automatically</string>
+    <string name="player_play_error_retry">Source playback failed. Retrying…</string>
     <string name="player_decode_fallback_tip">Hardware decoding failed. Retrying with software decoding</string>
     <string name="player_decode_fallback_hard_tip">Software decoding failed. Retrying with hardware decoding</string>
     <string name="player_audio_track_fallback_tip">Audio track cannot be decoded. Switching automatically</string>
@@ -591,6 +593,9 @@
     <string name="cast_device_offline">Device offline</string>
     <string name="toast_local_config_read_failed">Failed to read the local config</string>
     <string name="toast_local_missing_files_hint">%1$d files in the same folder have not been copied. Select the folder containing this config</string>
+    <string name="toast_local_source_imported">Imported local source "%1$s"</string>
+    <string name="toast_local_source_already_imported">This source has already been imported</string>
+    <string name="toast_local_source_unsupported">Only .py or .js local sources are supported</string>
     <string name="toast_local_missing_files_all_files">%1$d files in the same folder have not been copied. Select the folder containing this config (with “All files access”, the original folder can be referenced directly)</string>
     <string name="toast_storage_asked_by_spider">Requested by the spider module</string>
     <string name="toast_local_tree_denied">Folder access for this config was not granted, import cancelled (tap again to retry)</string>

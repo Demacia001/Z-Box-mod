@@ -29,8 +29,9 @@ import java.util.concurrent.ExecutorService
 import java.util.concurrent.Executors
 
 object LocalConfigHost {
-    var pending: ((api: String) -> Unit)? = null
+    var pending: ((name: String, api: String) -> Unit)? = null
 
+    var pendingName: String? = null
     var pendingApi: String? = null
 
     var pendingDir: File? = null
@@ -51,11 +52,20 @@ private val importWorker: ExecutorService by lazy {
 
 fun startLocalConfig(
     launcher: ActivityResultLauncher<Array<String>>,
-    onResult: (api: String) -> Unit,
+    onResult: (name: String, api: String) -> Unit,
 ) {
     SpiderStorageNotice.suppress()
     LocalConfigHost.pending = onResult
     launcher.launch(arrayOf("*/*"))
+}
+
+fun cancelLocalConfig() {
+    LocalConfigHost.pending = null
+    LocalConfigHost.pendingName = null
+    LocalConfigHost.pendingApi = null
+    LocalConfigHost.pendingDir = null
+    LocalConfigHost.pendingRefs = emptyList()
+    LocalConfigHost.pendingSourceDir = null
 }
 
 fun handleLocalConfigResult(activity: Activity, uri: Uri, onFinish: (Boolean) -> Unit) {
@@ -87,11 +97,12 @@ fun handleLocalConfigResult(activity: Activity, uri: Uri, onFinish: (Boolean) ->
                 PermissionHelper.requestStorage(activity) { _, _ -> }
             }
             if (result.missingRefs.isEmpty()) {
-                callback(result.api)
+                callback(result.name, result.api)
                 onFinish(false)
                 return@onMain
             }
             LocalConfigHost.pending = callback
+            LocalConfigHost.pendingName = result.name
             LocalConfigHost.pendingApi = result.api
             LocalConfigHost.pendingDir = result.dir
             LocalConfigHost.pendingRefs = result.missingRefs
@@ -107,13 +118,57 @@ fun handleLocalConfigResult(activity: Activity, uri: Uri, onFinish: (Boolean) ->
     }
 }
 
+internal fun isLocalSpiderName(name: String): Boolean =
+    name.endsWith(".py", ignoreCase = true) || name.endsWith(".js", ignoreCase = true)
+
+internal fun localSourceName(fileName: String): String =
+    fileName.substringBeforeLast('.').ifEmpty { fileName }
+
+fun importLocalSource(
+    activity: Activity,
+    uri: Uri,
+    onImported: (name: String, api: String) -> Unit,
+    onFailed: (unsupported: Boolean) -> Unit,
+) {
+    val context = activity.applicationContext ?: activity
+    importWorker.execute {
+        val displayName = safeFileName(getDisplayName(context, uri))
+        val supported = isLocalSpiderName(displayName)
+        val result = if (supported) {
+            try {
+                importLocalConfig(context, uri)
+            } catch (th: Throwable) {
+                LOG.e("LocalConfigHelper", th)
+                null
+            }
+        } else {
+            null
+        }
+        onMain {
+            if (activity.isFinishing || activity.isDestroyed) {
+                LOG.i("echo-local-src intent drop, page gone uri=" + uri)
+                return@onMain
+            }
+            if (result == null) {
+                LOG.i("echo-local-src intent failed name=" + displayName + " unsupported=" + !supported)
+                onFailed(!supported)
+                return@onMain
+            }
+            LOG.i("echo-local-src intent import name=" + displayName + " api=" + result.api)
+            onImported(result.name, result.api)
+        }
+    }
+}
+
 fun handleLocalSourceTreeResult(activity: Activity, tree: Uri?) {
     val callback = LocalConfigHost.pending
+    val name = LocalConfigHost.pendingName
     val api = LocalConfigHost.pendingApi
     val dir = LocalConfigHost.pendingDir
     val refs = LocalConfigHost.pendingRefs
     val sourceDir = LocalConfigHost.pendingSourceDir
     LocalConfigHost.pending = null
+    LocalConfigHost.pendingName = null
     LocalConfigHost.pendingApi = null
     LocalConfigHost.pendingDir = null
     LocalConfigHost.pendingRefs = emptyList()
@@ -126,7 +181,7 @@ fun handleLocalSourceTreeResult(activity: Activity, tree: Uri?) {
             R.string.toast_local_tree_denied
         }
         Toast.makeText(activity, activity.getString(tip), Toast.LENGTH_LONG).show()
-        if (!api.isNullOrEmpty()) callback(api)
+        if (!api.isNullOrEmpty()) callback(name.orEmpty(), api)
         return
     }
     val context = activity.applicationContext ?: activity
@@ -148,12 +203,13 @@ fun handleLocalSourceTreeResult(activity: Activity, tree: Uri?) {
                     Toast.LENGTH_LONG,
                 ).show()
             }
-            if (!api.isNullOrEmpty()) callback(api)
+            if (!api.isNullOrEmpty()) callback(name.orEmpty(), api)
         }
     }
 }
 
 private class LocalConfigImport(
+    val name: String,
     val api: String,
     val direct: Boolean,
     val dir: File?,
@@ -163,6 +219,7 @@ private class LocalConfigImport(
 
 private fun importLocalConfig(context: Context, uri: Uri): LocalConfigImport? {
     val displayName = safeFileName(getDisplayName(context, uri))
+    val sourceName = localSourceName(displayName)
     if (displayName.endsWith(".py", ignoreCase = true)) {
         return importLocalPySpider(context, uri, displayName)
     }
@@ -177,7 +234,7 @@ private fun importLocalConfig(context: Context, uri: Uri): LocalConfigImport? {
             " parsed=" + path + " src=" + source + " uri=" + uri,
     )
     if (source != null) {
-        toClanApi(source, storageRoot)?.let { return LocalConfigImport(it, true, null, emptyList(), null) }
+        toClanApi(source, storageRoot)?.let { return LocalConfigImport(sourceName, it, true, null, emptyList(), null) }
     }
     val data = readBytes(context, uri, MAX_CONFIG_SIZE) ?: return null
     val refs = relativeRefs(String(data, Charsets.UTF_8))
@@ -188,11 +245,12 @@ private fun importLocalConfig(context: Context, uri: Uri): LocalConfigImport? {
     val sourceDir = path?.let { File(it).parentFile }
     val missing = if (refs.isEmpty() || sourceDir == null) refs else copyRefs(sourceDir, dir, refs)
     val api = toClanApi(file.absolutePath, storageRoot) ?: return null
-    return LocalConfigImport(api, false, if (missing.isEmpty()) null else dir, missing, sourceDir?.absolutePath)
+    return LocalConfigImport(sourceName, api, false, if (missing.isEmpty()) null else dir, missing, sourceDir?.absolutePath)
 }
 
 private fun importLocalPySpider(context: Context, uri: Uri, pyName: String): LocalConfigImport? {
     val storageRoot = Environment.getExternalStorageDirectory().absolutePath
+    val sourceName = localSourceName(pyName)
     val data = readBytes(context, uri, MAX_CONFIG_SIZE) ?: return null
     val digest = requireNotNull(MD5.encode(uri.toString())) { "md5 of uri failed" }
     val dir = File(File(FileUtils.getExternalFilesPath(), "config"), digest)
@@ -200,18 +258,19 @@ private fun importLocalPySpider(context: Context, uri: Uri, pyName: String): Loc
     if (!writeBytes(pyFile, data)) return null
     val config = PySourcePack.packLocal(
         pyFileName = pyFile.name,
-        siteName = pyName.substringBeforeLast('.'),
+        siteName = sourceName,
         key = "py_${digest.take(8)}",
     )
     val configFile = File(dir, "spider_${digest.take(8)}.json")
     if (!writeBytes(configFile, config.toByteArray(Charsets.UTF_8))) return null
     val api = toClanApi(configFile.absolutePath, storageRoot) ?: return null
     LOG.i("echo-local-src py-pack name=" + pyName + " py=" + pyFile.absolutePath + " api=" + api)
-    return LocalConfigImport(api, false, null, emptyList(), null)
+    return LocalConfigImport(sourceName, api, false, null, emptyList(), null)
 }
 
 private fun importLocalJsSpider(context: Context, uri: Uri, jsName: String): LocalConfigImport? {
     val storageRoot = Environment.getExternalStorageDirectory().absolutePath
+    val sourceName = localSourceName(jsName)
     val data = readBytes(context, uri, MAX_CONFIG_SIZE) ?: return null
     val digest = requireNotNull(MD5.encode(uri.toString())) { "md5 of js uri failed" }
     val dir = File(File(FileUtils.getExternalFilesPath(), "config"), digest)
@@ -220,14 +279,14 @@ private fun importLocalJsSpider(context: Context, uri: Uri, jsName: String): Loc
     val jsApi = toClanApi(jsFile.absolutePath, storageRoot) ?: return null
     val config = PySourcePack.packLocalJs(
         jsApi = jsApi,
-        siteName = jsName.substringBeforeLast('.'),
+        siteName = sourceName,
         key = "js_${digest.take(8)}",
     )
     val configFile = File(dir, "spider_${digest.take(8)}.json")
     if (!writeBytes(configFile, config.toByteArray(Charsets.UTF_8))) return null
     val api = toClanApi(configFile.absolutePath, storageRoot) ?: return null
     LOG.i("echo-local-src js-pack name=" + jsName + " js=" + jsFile.absolutePath + " api=" + api)
-    return LocalConfigImport(api, false, null, emptyList(), null)
+    return LocalConfigImport(sourceName, api, false, null, emptyList(), null)
 }
 
 private fun readablePath(path: String?): String? {

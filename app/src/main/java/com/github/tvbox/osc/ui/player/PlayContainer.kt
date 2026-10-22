@@ -456,7 +456,8 @@ class PlayContainer(activity: Activity) : FrameLayout(activity), CustomAdapt, Pl
 
     fun hidePreloadReady() = overlays.hidePreloadReady()
 
-    fun errorWithRetry(err: String, finish: Boolean) = overlays.errorWithRetry(err, finish)
+    fun errorWithRetry(err: String, finish: Boolean, playbackError: Boolean = false) =
+        overlays.errorWithRetry(err, finish, playbackError)
 
     fun initSubtitleView() = subtitles.initSubtitleView()
 

@@ -1,5 +1,6 @@
 package com.github.tvbox.osc.player
 
+import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Test
@@ -49,5 +50,21 @@ class PlaybackAttemptStateTest {
         st.usedPreloadedResult = true
         st.beginNewPlay()
         assertFalse(st.usedPreloadedResult)
+    }
+
+    @Test
+    fun httpStatus_clearedByBeginNewPlay() {
+        val st = PlaybackAttemptState()
+        st.lastHttpStatus = 403
+        st.beginNewPlay()
+        assertEquals(0, st.lastHttpStatus)
+    }
+
+    @Test
+    fun httpStatus_clearedBySessionBoundary() {
+        val st = PlaybackAttemptState()
+        st.lastHttpStatus = 500
+        st.beginSession()
+        assertEquals(0, st.lastHttpStatus)
     }
 }

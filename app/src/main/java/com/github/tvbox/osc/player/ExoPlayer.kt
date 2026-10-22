@@ -362,6 +362,8 @@ class ExoPlayer(context: Context) : KernelPlayer() {
 
     fun lastErrorCodeName(): String? = engine?.lastErrorCodeName
 
+    fun lastErrorHttpStatus(): Int = engine?.lastErrorHttpStatus ?: 0
+
     fun lastErrorExceedsDecodeCapability(): Boolean = engine?.lastErrorExceedsDecodeCapability ?: false
 
     fun lastErrorTenBitFormat(): Boolean = engine?.lastErrorTenBitFormat ?: false

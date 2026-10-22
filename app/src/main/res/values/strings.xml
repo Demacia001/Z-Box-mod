@@ -55,7 +55,9 @@
     <string name="toast_subtitle_not_found">未查询到匹配字幕</string>
 
     <string name="player_error_sniff">嗅探错误</string>
-    <string name="player_error_play">视频播放出错</string>
+    <string name="player_error_play">片源播放失败，请切换线路或更换片源</string>
+    <string name="player_error_play_http">片源播放失败（HTTP %1$d），请切换线路或更换片源</string>
+    <string name="player_site_failed">%1$s：%2$s</string>
     <string name="player_decode_exceeds_capability">超出内核解码能力上限</string>
     <string name="player_decode_10bit_tip">该线路为 10-bit 编码，设备不支持</string>
     <string name="player_no_audio_track">没有音轨</string>
@@ -271,7 +273,7 @@
     <string name="music_previous">上一首</string>
     <string name="music_next">下一首</string>
 
-    <string name="search_home_poster">首页海报</string>
+    <string name="search_home_poster">海报样式</string>
     <string name="search_layout_horizontal">沉浸</string>
     <string name="search_layout_vertical">普通</string>
     <string name="search_result_layout_horizontal">卡片视图</string>
@@ -529,7 +531,7 @@
     <string name="player_source_invalid">该线路返回的资源不完整</string>
     <string name="player_iso_cast_unsupported">ISO 格式的蓝光原盘不支持投屏</string>
     <string name="player_iso_bandwidth_low">网盘限速，带宽不足</string>
-    <string name="player_play_error_retry">播放出错，自动重试</string>
+    <string name="player_play_error_retry">片源播放失败，正在重试</string>
     <string name="player_decode_fallback_tip">硬解失败，已切换软解重试</string>
     <string name="player_decode_fallback_hard_tip">软解失败，已切换硬解重试</string>
     <string name="player_audio_track_fallback_tip">音轨无法解码，自动切换</string>
@@ -591,6 +593,9 @@
     <string name="cast_device_offline">设备离线</string>
     <string name="toast_local_config_read_failed">读取本地配置失败</string>
     <string name="toast_local_missing_files_hint">还有 %1$d 个同目录文件没搬过来,请选择该配置所在的文件夹</string>
+    <string name="toast_local_source_imported">已导入本地源「%1$s」</string>
+    <string name="toast_local_source_already_imported">此源已导入</string>
+    <string name="toast_local_source_unsupported">只支持 .py 或 .js 本地源</string>
     <string name="toast_local_missing_files_all_files">还有 %1$d 个同目录文件没搬过来,请选择该配置所在的文件夹(开启「所有文件访问」后可直接引用原目录,不必搬文件)</string>
     <string name="toast_storage_asked_by_spider">权限由爬虫模块申请</string>
     <string name="toast_local_tree_denied">没拿到该配置所在文件夹的授权,已取消导入(可再点一次重试)</string>

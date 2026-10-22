@@ -36,6 +36,8 @@ import androidx.media3.exoplayer.util.EventLogger
 import androidx.media3.exoplayer.video.VideoFrameMetadataListener
 import com.github.tvbox.osc.player.PlayerCodecStats
 import com.github.tvbox.osc.player.PlayerDecodeKind
+import com.github.tvbox.osc.player.RetryPolicy
+import com.github.tvbox.osc.player.SlowOpenSignal
 import com.github.tvbox.osc.player.TrackInfo
 import com.github.tvbox.osc.player.TrackInfoBean
 import com.github.tvbox.osc.player.effect.PictureEffects
@@ -161,6 +163,8 @@ class PlayerEngine(
     private var lastAudioFormatLogged: String? = null
 
     private var lastErrorCodeNameValue: String? = null
+
+    private var lastErrorHttpStatusValue = 0
 
     @Volatile
     private var lastErrorExceedsDecodeCapabilityValue = false
@@ -323,6 +327,7 @@ class PlayerEngine(
         currentHeaders = copyHeaders(headers)
         isoSession = MediaSources.isoHeaders(currentHeaders)
         isoSourceBuilt = false
+        if (!isoSession && SourcePolicy.isLocalProxyUrl(playPath)) SlowOpenSignal.arm() else SlowOpenSignal.disarm()
         resetSessionFlags()
         trackSelection.resetForNewContent()
         resetPlaybackStats()
@@ -367,6 +372,7 @@ class PlayerEngine(
         lastErrorFormatIdValue = null
         lastAudioFormatLogged = null
         lastErrorCodeNameValue = null
+        lastErrorHttpStatusValue = 0
         lastErrorExceedsDecodeCapabilityValue = false
         lastErrorTenBitValue = false
     }
@@ -764,6 +770,9 @@ class PlayerEngine(
     val lastErrorCodeName: String?
         get() = lastErrorCodeNameValue
 
+    val lastErrorHttpStatus: Int
+        get() = lastErrorHttpStatusValue
+
     val lastErrorExceedsDecodeCapability: Boolean
         get() = lastErrorExceedsDecodeCapabilityValue
 
@@ -979,6 +988,7 @@ class PlayerEngine(
         lastErrorTrackKindValue = classifyTrackKind(error)
         lastErrorFormatIdValue = (error as? ExoPlaybackException)?.rendererFormat?.id
         lastErrorCodeNameValue = codeName
+        lastErrorHttpStatusValue = RetryPolicy.httpStatusForTip(error, SourcePolicy.isLocalProxyUrl(currentPlayPath))
         lastErrorExceedsDecodeCapabilityValue = exceedsDecodeCapability(codeName, error.message)
         lastErrorTenBitValue = isTenBitFormat((error as? ExoPlaybackException)?.rendererFormat?.colorInfo)
         LOG.e("Tvbox-runtime", "echo-Exo player error: $currentPlayPath", error)

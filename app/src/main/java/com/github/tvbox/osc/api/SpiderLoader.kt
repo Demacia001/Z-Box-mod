@@ -44,6 +44,11 @@ class SpiderLoader {
     private val jsLoader = JsLoader()
     private val pyLoader: IPyLoader = com.github.catvod.crawler.pyLoader()
     private val jarLoadExecutor: ExecutorService = Executors.newSingleThreadExecutor()
+    private val jarLoadEpoch = LoadEpoch()
+
+    @Volatile
+    private var activeJarCall: okhttp3.Call? = null
+
     private val danmuSearchExecutor: ExecutorService = Executors.newSingleThreadExecutor()
     private val mainHandler = Handler(Looper.getMainLooper())
     private val warmedSearchSpiderKeys: MutableSet<String> = HashSet()
@@ -67,8 +72,19 @@ class SpiderLoader {
     }
 
     fun loadJar(useCache: Boolean, spider: String, callback: ApiConfig.LoadConfigCallback) {
-        loadJar(useCache, spider, callback, 0)
+        loadJar(useCache, spider, callback, 0, jarLoadEpoch.current())
     }
+
+    fun invalidateJarLoads() {
+        jarLoadEpoch.next()
+        val call = activeJarCall
+        if (call != null) {
+            LOG.debugI("echo-switch: cancel jar download")
+            call.cancel()
+        }
+    }
+
+    private fun isJarLoadStale(epoch: Long): Boolean = jarLoadEpoch.isStale(epoch)
 
     private interface JarLoadCallback {
         fun complete(success: Boolean)
@@ -78,8 +94,15 @@ class SpiderLoader {
         fun complete(file: File?, error: String?)
     }
 
-    private fun loadJarAsync(file: File?, callback: JarLoadCallback) {
+    private fun loadJarAsync(file: File?, callback: JarLoadCallback, epoch: Long) {
         jarLoadExecutor.execute(Runnable {
+            if (isJarLoadStale(epoch)) {
+                LOG.debugI("echo-switch: drop stale jar load")
+                mainHandler.post(Runnable {
+                    callback.complete(false)
+                })
+                return@Runnable
+            }
             if (file != null) BootGuard.onJarLoadStart(file.absolutePath, BootGuard.SCOPE_VOD)
             var success = false
             try {
@@ -95,13 +118,21 @@ class SpiderLoader {
         })
     }
 
-    private fun downloadJarAsync(url: String, isJarInImg: Boolean, cache: File, callback: JarDownloadCallback) {
+    private fun downloadJarAsync(url: String, isJarInImg: Boolean, cache: File, callback: JarDownloadCallback, epoch: Long) {
         jarLoadExecutor.execute(Runnable {
+            if (isJarLoadStale(epoch)) {
+                LOG.debugI("echo-switch: drop stale jar download")
+                mainHandler.post(Runnable {
+                    callback.complete(null, "stale")
+                })
+                return@Runnable
+            }
             var result: File? = null
             var error: String? = ""
             var response: okhttp3.Response? = null
             var inputStream: InputStream? = null
             var outputStream: FileOutputStream? = null
+            var call: okhttp3.Call? = null
             val temp = File(cache.absolutePath + ".tmp")
             try {
                 val cacheDir = cache.parentFile
@@ -113,7 +144,10 @@ class SpiderLoader {
                         .build()
                 var client: okhttp3.OkHttpClient? = OkGoHelper.getDefaultClient()
                 if (client == null) client = com.github.catvod.net.OkHttp.client()
-                response = client.newCall(request).execute()
+                val jarCall = client.newCall(request)
+                call = jarCall
+                activeJarCall = jarCall
+                response = jarCall.execute()
                 if (!response.isSuccessful) {
                     error = "HTTP " + response.code
                 } else if (response.body == null) {
@@ -152,10 +186,16 @@ class SpiderLoader {
             } catch (th: Throwable) {
                 error = th.message
             } finally {
+                if (call != null && activeJarCall === call) activeJarCall = null
                 closeQuietly(inputStream)
                 closeQuietly(outputStream)
                 if (response != null) closeQuietly(response.body)
                 if (result == null && temp.exists()) temp.delete()
+            }
+            if (isJarLoadStale(epoch)) {
+                LOG.debugI("echo-switch: discard stale jar download")
+                result = null
+                error = "stale"
             }
             val finalResult = result
             val finalError = error
@@ -187,7 +227,12 @@ class SpiderLoader {
         return "".toByteArray(Charset.defaultCharset())
     }
 
-    private fun loadJar(useCache: Boolean, spider: String, callback: ApiConfig.LoadConfigCallback, retryCount: Int) {
+    private fun loadJar(useCache: Boolean, spider: String, callback: ApiConfig.LoadConfigCallback, retryCount: Int, epoch: Long) {
+        if (isJarLoadStale(epoch)) {
+            LOG.debugI("echo-switch: abort stale jar load")
+            callback.error(str(R.string.toast_jar_load_failed))
+            return
+        }
         val urls = RegexUtils.getPattern(";md5;").split(spider)
         var jarUrl = urls[0]
         val md5 = if (urls.size > 1) urls[1].trim { it <= ' ' } else ""
@@ -210,7 +255,7 @@ class SpiderLoader {
                                 callback.error(str(R.string.toast_jar_load_failed))
                             }
                         }
-                    })
+                    }, epoch)
                     return
                 }
                 if (jarLoader.load(cache.absolutePath)) {
@@ -229,10 +274,10 @@ class SpiderLoader {
                             if (success) {
                                 callback.success()
                             } else {
-                                loadJar(false, spider, callback, retryCount)
+                                loadJar(false, spider, callback, retryCount, epoch)
                             }
                         }
-                    })
+                    }, epoch)
                     return
                 }
                 if (jarLoader.load(cache.absolutePath)) {
@@ -249,11 +294,15 @@ class SpiderLoader {
         downloadJarAsync(requestUrl, isJarInImg, cache, object : JarDownloadCallback {
             private fun retryLoad(reason: String): Boolean {
                 if (retryCount >= LOAD_JAR_MAX_RETRY) return false
+                if (isJarLoadStale(epoch)) {
+                    LOG.debugI("echo-switch: abort stale jar retry")
+                    return false
+                }
                 if (cache.exists() && !cache.delete()) {
                     LOG.i("echo---delete bad jar cache failed:" + cache.absolutePath)
                 }
                 LOG.i("echo---retry load jar reason:" + reason + " url:" + requestUrl + " retry:" + (retryCount + 1))
-                loadJar(false, spider, callback, retryCount + 1)
+                loadJar(false, spider, callback, retryCount + 1, epoch)
                 return true
             }
 
@@ -270,7 +319,7 @@ class SpiderLoader {
                                 callback.error(str(R.string.toast_jar_load_failed))
                             }
                         }
-                    })
+                    }, epoch)
                     return
                 }
                 if (!TextUtils.isEmpty(error)) {
@@ -286,13 +335,13 @@ class SpiderLoader {
                                 callback.error(str(R.string.toast_network_error))
                             }
                         }
-                    })
+                    }, epoch)
                     return
                 }
                 if (retryLoad("request_error")) return
                 callback.error(str(R.string.toast_network_error))
             }
-        })
+        }, epoch)
     }
 
     fun getCSP(sourceBean: SourceBean): Spider {
@@ -434,6 +483,7 @@ class SpiderLoader {
     }
 
     fun clearLoader() {
+        invalidateJarLoads()
         val startedAt = System.currentTimeMillis()
         jarLoader.clear()
         val jarDone = System.currentTimeMillis()
@@ -444,7 +494,7 @@ class SpiderLoader {
         synchronized(warmedSearchSpiderKeys) {
             warmedSearchSpiderKeys.clear()
         }
-        LOG.i(
+        LOG.debugI(
             "echo-switch: clear jar=" + (jarDone - startedAt) + "ms py=" + (pyDone - jarDone) +
                 "ms js=" + (jsDone - pyDone) + "ms"
         )

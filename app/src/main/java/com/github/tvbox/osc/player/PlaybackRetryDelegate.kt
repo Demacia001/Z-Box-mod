@@ -4,6 +4,7 @@ import android.net.Uri
 import android.text.TextUtils
 import androidx.media3.exoplayer.mediacodec.MediaCodecSelector
 import com.github.tvbox.osc.R
+import com.github.tvbox.osc.bean.SourceBean
 import com.github.tvbox.osc.bean.VodInfo
 import com.github.tvbox.osc.data.EpisodeMatcher
 import com.github.tvbox.osc.player.engine.iso.IsoAudioFallback
@@ -27,6 +28,8 @@ class PlaybackRetryDelegate(private val host: Host) {
         fun playerCfg(): JSONObject?
 
         fun vod(): VodInfo?
+
+        fun sourceBean(): SourceBean?
 
         fun currentSeries(flag: String?, index: Int): VodInfo.VodSeries?
 
@@ -57,6 +60,8 @@ class PlaybackRetryDelegate(private val host: Host) {
         fun cancelPlayTimeout()
 
         fun startSwitchLinePlayTimeout(isoSession: Boolean)
+
+        fun extendSwitchLinePlayTimeout(graceMs: Long)
 
         fun isPlaybackStarted(): Boolean
 
@@ -511,7 +516,7 @@ class PlaybackRetryDelegate(private val host: Host) {
     suspend fun handleResolvePlayUrlFailed(err: String) {
         if (dropRetryIfCastAborted("resolveFailed")) {
             host.stopMusicSessionForFailedPlayback()
-            showErrorTip(err)
+            showErrorTip(resolveFailedTip(err))
             return
         }
         val st = host.attemptState()
@@ -523,13 +528,22 @@ class PlaybackRetryDelegate(private val host: Host) {
             st.userPickedLine = false
             host.cancelPlayTimeout()
             host.stopMusicSessionForFailedPlayback()
-            showErrorTip(err)
+            showErrorTip(resolveFailedTip(err))
             return
         }
         if (tryNextLineIfEnabled()) return
         host.cancelPlayTimeout()
         host.stopMusicSessionForFailedPlayback()
-        showErrorTip(err)
+        showErrorTip(resolveFailedTip(err))
+    }
+
+    private fun resolveFailedTip(err: String): String {
+        val site = host.sourceBean()?.name?.trim().orEmpty()
+        if (site.isEmpty()) return err
+        val text = PlaybackController.str(R.string.player_site_failed, site, err)
+        if (text.isEmpty()) return err
+        LOG.i("echo-resolve-failed tip: $text")
+        return text
     }
 
     suspend fun handleSwitchLinePlayTimeout() {
@@ -543,6 +557,14 @@ class PlaybackRetryDelegate(private val host: Host) {
         val state = view?.playState()
         LOG.i("echo-switchLinePlay timeout state: $state, started: " + st.playbackStarted)
         if (abortIfCastPrepare("switchLineTimeout")) return
+        val slowOpenExtend = st.localProxySession && !isoSessionLike(st) &&
+            SlowOpenSignal.shouldExtend(host.isPlaybackStarted(), st.slowOpenExtended)
+        if (slowOpenExtend) {
+            st.slowOpenExtended = true
+            LOG.i("echo-slow-open extend bytes=${SlowOpenSignal.bytes()} localProxy=${st.localProxySession}")
+            host.extendSwitchLinePlayTimeout(PlaybackTimeouts.SLOW_OPEN_GRACE_MS)
+            return
+        }
         if (host.isPlaybackStarted()) {
             host.cancelPlayTimeout()
             view?.hideTipOnUiThread()

@@ -169,8 +169,14 @@ class ApiConfig private constructor() {
         clearLiveConfig()
     }
 
+    fun cancelPendingLoads() {
+        configLoader.cancelVodFetches()
+        spiderLoader.invalidateJarLoads()
+    }
+
     fun clearVodConfig() {
         val followLive = isLiveFollowVod()
+        cancelPendingLoads()
         resetConfigData()
         mHomeSource = null
         KV.put(HawkConfig.API_URL, "")
@@ -215,6 +221,10 @@ class ApiConfig private constructor() {
     }
 
     fun parseJson(apiUrl: String, jsonStr: String) {
+        if (apiUrl != KV.get(HawkConfig.API_URL, "")) {
+            LOG.debugI("echo-switch: drop stale config")
+            return
+        }
         resetConfigData()
         VideoParseRuler.clearRule()
         LOG.i("echo-apiurl:" + apiUrl)

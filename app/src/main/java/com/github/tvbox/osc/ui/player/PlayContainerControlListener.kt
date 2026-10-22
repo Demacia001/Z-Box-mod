@@ -88,7 +88,8 @@ class PlayContainerControlListener(private val container: PlayContainer) : VodCo
     }
 
     override fun errReplay() {
-        container.errorWithRetry(container.context.getString(R.string.player_error_play), false)
+        container.scheduler.rememberErrorHttpStatus()
+        container.errorWithRetry(container.context.getString(R.string.player_error_play), false, true)
     }
 
     override fun closeSubtitles() {

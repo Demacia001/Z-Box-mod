@@ -72,9 +72,18 @@ class PlaybackTimeouts(private val callback: Callback) {
         @JvmField
         val ISO_SWITCH_LINE_PLAY_TIMEOUT_MS: Long = 45 * 1000L
 
+        @JvmField
+        val PAN_SWITCH_LINE_PLAY_TIMEOUT_MS: Long = 35 * 1000L
+
+        @JvmField
+        val SLOW_OPEN_GRACE_MS: Long = 15 * 1000L
+
         @JvmStatic
-        fun switchLinePlayTimeoutMs(isoSession: Boolean): Long =
-            if (isoSession) ISO_SWITCH_LINE_PLAY_TIMEOUT_MS else SWITCH_LINE_PLAY_TIMEOUT_MS
+        fun switchLinePlayTimeoutMs(isoSession: Boolean, localProxy: Boolean = false): Long = when {
+            isoSession -> ISO_SWITCH_LINE_PLAY_TIMEOUT_MS
+            localProxy -> PAN_SWITCH_LINE_PLAY_TIMEOUT_MS
+            else -> SWITCH_LINE_PLAY_TIMEOUT_MS
+        }
 
         private const val MSG_RESOLVE_PLAY_URL_TIMEOUT = 101
         private const val MSG_SWITCH_LINE_PLAY_TIMEOUT = 102

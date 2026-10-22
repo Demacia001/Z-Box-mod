@@ -11,6 +11,7 @@ import androidx.media3.datasource.HttpDataSource
 import androidx.media3.datasource.HttpUtil
 import androidx.media3.datasource.TransferListener
 import com.google.common.base.Predicate
+import com.github.tvbox.osc.player.SlowOpenSignal
 import okhttp3.CacheControl
 import okhttp3.Call
 import okhttp3.Callback
@@ -175,7 +176,9 @@ class OkHttpDataSource private constructor(
 
     override fun read(buffer: ByteArray, offset: Int, length: Int): Int {
         return try {
-            readInternal(buffer, offset, length)
+            val read = readInternal(buffer, offset, length)
+            SlowOpenSignal.note(read)
+            read
         } catch (e: IOException) {
             throw HttpDataSource.HttpDataSourceException.createForIOException(
                 e,

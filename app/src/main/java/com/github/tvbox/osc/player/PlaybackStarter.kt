@@ -9,6 +9,7 @@ import com.github.tvbox.osc.data.PlaybackProgress
 import com.github.tvbox.osc.data.WatchProgressStore
 import com.github.tvbox.osc.event.RefreshEvent
 import com.github.tvbox.osc.player.engine.MediaSources
+import com.github.tvbox.osc.player.engine.SourcePolicy
 import com.github.tvbox.osc.player.state.PlayState
 import com.github.tvbox.osc.server.ControlManager
 import com.github.tvbox.osc.sourcedata.SourceViewModel
@@ -269,8 +270,10 @@ class PlaybackStarter(private val host: Host) {
 
     fun playUrl(url: String, headers: HashMap<String, String>?) {
         host.syncDecodeFromGlobal()
-        host.startSwitchLinePlayTimeout(MediaSources.isoHeaders(headers))
         val target = attachProxySiteKey(url)
+        host.attemptState().localProxySession = SourcePolicy.isLocalProxyUrl(target)
+        SlowOpenSignal.reset()
+        host.startSwitchLinePlayTimeout(MediaSources.isoHeaders(headers))
         if (!target.startsWith("data:application")) {
             EventBus.getDefault().post(RefreshEvent(RefreshEvent.TYPE_REFRESH, target))
         }

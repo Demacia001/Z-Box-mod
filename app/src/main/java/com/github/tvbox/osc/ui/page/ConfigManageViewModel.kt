@@ -3,7 +3,10 @@ package com.github.tvbox.osc.ui.page
 import androidx.annotation.StringRes
 import androidx.compose.runtime.Immutable
 import androidx.lifecycle.ViewModel
+import androidx.lifecycle.ViewModelProvider
 import androidx.lifecycle.viewModelScope
+import androidx.lifecycle.viewmodel.initializer
+import androidx.lifecycle.viewmodel.viewModelFactory
 import com.github.tvbox.osc.R
 import com.github.tvbox.osc.api.ApiConfig
 import com.github.tvbox.osc.base.App
@@ -408,6 +411,12 @@ class ConfigManageViewModel(
         }
     }
 
+    fun addLocalSource(name: String, url: String): Boolean {
+        val existed = loadSubscribes(SubscribeMode.Vod).any { parseSubscribe(it).url == url }
+        vodItems.value = saveSubscribe(SubscribeMode.Vod, name, url)
+        return existed
+    }
+
     fun commitEdit(vod: Boolean, target: SubscribeSource, name: String, url: String) {
         if (url.isEmpty()) return
         val mode = if (vod) SubscribeMode.Vod else SubscribeMode.Live
@@ -470,5 +479,11 @@ class ConfigManageViewModel(
         if (dupIndex >= 0) list.removeAt(dupIndex)
         KV.put(subscribeKeyOf(mode), list)
         return list
+    }
+
+    companion object {
+        fun defaultFactory(): ViewModelProvider.Factory = viewModelFactory {
+            initializer { ConfigManageViewModel { TmdbApi.DefaultTmdbClient() } }
+        }
     }
 }

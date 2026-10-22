@@ -63,6 +63,7 @@ object AppBootstrap {
     }
 
     fun retry() {
+        ApiConfig.get().cancelPendingLoads()
         _state.value = Boot.Loading
         startInit(forceFresh = true, offline = false)
     }
@@ -74,12 +75,13 @@ object AppBootstrap {
 
     fun onApiUrlChanged() {
         val generation = bootGeneration.next()
+        ApiConfig.get().cancelPendingLoads()
         _state.value = Boot.Loading
-        LOG.i("echo-switch: request")
+        LOG.debugI("echo-switch: request")
         scope.launch {
             val startedAt = System.currentTimeMillis()
             ApiConfig.get().invalidateVodConfig()
-            LOG.i("echo-switch: invalidate dt=" + (System.currentTimeMillis() - startedAt) + "ms")
+            LOG.debugI("echo-switch: invalidate dt=" + (System.currentTimeMillis() - startedAt) + "ms")
             SearchViewModel.clearCheckedSources()
             subscriptionCidFlow.value = CurrentSubscription.cid()
             startInit(forceFresh = true, offline = false, generation = generation)
@@ -126,6 +128,7 @@ object AppBootstrap {
                             return@withLock
                         }
                     } else {
+                        if (!bootGeneration.isLatest(generation)) return@withLock
                         dataInitOk = true
                         if (ApiConfig.get().getSpider().isNullOrEmpty()) jarInitOk = true
                     }
@@ -133,7 +136,7 @@ object AppBootstrap {
                 if (dataInitOk && !jarInitOk) {
                     val err = awaitLoadJar()
                     jarInitOk = true
-                    if (!err.isNullOrEmpty()) toast(err)
+                    if (!err.isNullOrEmpty() && bootGeneration.isLatest(generation)) toast(err)
                 }
                 if (dataInitOk && jarInitOk && bootGeneration.isLatest(generation)) {
                     ApiConfig.get().warmSearchSpiders()

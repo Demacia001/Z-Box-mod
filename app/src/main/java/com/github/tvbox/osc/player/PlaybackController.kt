@@ -14,6 +14,7 @@ import com.github.tvbox.osc.sourcedata.SourceViewModel
 import com.github.tvbox.osc.util.LOG
 import com.github.tvbox.osc.util.LanguageManager
 import com.github.tvbox.osc.player.state.PlayState
+import com.github.tvbox.osc.player.engine.SourcePolicy
 import com.github.tvbox.osc.player.engine.iso.IsoSessionSignal
 import com.github.tvbox.osc.player.usecase.M3u8PurifyUseCase
 import org.greenrobot.eventbus.EventBus
@@ -270,6 +271,8 @@ class PlaybackController {
 
         override fun vod(): VodInfo? = this@PlaybackController.vod
 
+        override fun sourceBean(): SourceBean? = this@PlaybackController.sourceBean()
+
         override fun currentSeries(flag: String?, index: Int): VodInfo.VodSeries? =
             this@PlaybackController.currentSeries(flag, index)
 
@@ -317,6 +320,10 @@ class PlaybackController {
 
         override fun startSwitchLinePlayTimeout(isoSession: Boolean) {
             this@PlaybackController.startSwitchLinePlayTimeout(isoSession)
+        }
+
+        override fun extendSwitchLinePlayTimeout(graceMs: Long) {
+            this@PlaybackController.extendSwitchLinePlayTimeout(graceMs)
         }
 
         override fun isPlaybackStarted(): Boolean = this@PlaybackController.isPlaybackStarted()
@@ -375,24 +382,32 @@ class PlaybackController {
         st.audioOnlyConfirmed = false
     }
 
-    fun isLastErrorExceedsDecodeCapability(): Boolean {
+    private fun <T> probeKernelError(fallback: T, label: String, read: (ExoPlayer) -> T): T {
         try {
             val live = view?.mediaPlayer()
-            if (live is ExoPlayer) return live.lastErrorExceedsDecodeCapability()
+            if (live is ExoPlayer) return read(live)
         } catch (ignored: Throwable) {
-            LOG.d("PlaybackController", "exo decode capability probe failed")
+            LOG.d("PlaybackController", label + " probe failed")
         }
-        return false
+        return fallback
     }
 
-    fun isLastErrorTenBitFormat(): Boolean {
-        try {
-            val live = view?.mediaPlayer()
-            if (live is ExoPlayer) return live.lastErrorTenBitFormat()
-        } catch (ignored: Throwable) {
-            LOG.d("PlaybackController", "exo bit depth probe failed")
-        }
-        return false
+    fun isLastErrorExceedsDecodeCapability(): Boolean =
+        probeKernelError(false, "exo decode capability") { it.lastErrorExceedsDecodeCapability() }
+
+    fun isLastErrorTenBitFormat(): Boolean =
+        probeKernelError(false, "exo bit depth") { it.lastErrorTenBitFormat() }
+
+    fun lastErrorHttpStatus(): Int =
+        probeKernelError(0, "exo http status") { it.lastErrorHttpStatus() }
+
+    fun rememberErrorHttpStatus() {
+        st.lastHttpStatus = lastErrorHttpStatus()
+    }
+
+    fun errorHttpStatusForTip(): Int {
+        val live = lastErrorHttpStatus()
+        return if (live > 0) live else st.lastHttpStatus
     }
 
     fun setCastPrepareOnly(prepareOnly: Boolean) {
@@ -469,6 +484,7 @@ class PlaybackController {
 
     fun markPlaybackStarted() {
         st.playbackStarted = true
+        SlowOpenSignal.disarm()
         WatchProgressStore.onPlayStart(progressKey())
         cancelPlayTimeout()
     }
@@ -503,9 +519,19 @@ class PlaybackController {
             return
         }
         cancelPlayTimeout()
-        val timeoutMs = PlaybackTimeouts.switchLinePlayTimeoutMs(isoSession)
-        LOG.i("echo-switchLinePlay start timeout:$timeoutMs")
+        val timeoutMs = PlaybackTimeouts.switchLinePlayTimeoutMs(isoSession, st.localProxySession)
+        LOG.i("echo-switchLinePlay start timeout:$timeoutMs localProxy=${st.localProxySession}")
         timeouts.startSwitchLinePlayTimeout(timeoutMs)
+    }
+
+    fun extendSwitchLinePlayTimeout(graceMs: Long) {
+        if (!st.allowAutoSwitchLine) {
+            cancelPlayTimeout()
+            return
+        }
+        cancelPlayTimeout()
+        LOG.i("echo-switchLinePlay extend grace:$graceMs")
+        timeouts.startSwitchLinePlayTimeout(graceMs)
     }
 
     fun cancelSwitchLinePlayTimeout() {
@@ -802,6 +828,8 @@ class PlaybackController {
     }
 
     fun goPlayUrl(url: String, headers: HashMap<String, String>?) {
+        st.localProxySession = SourcePolicy.isLocalProxyUrl(url)
+        SlowOpenSignal.reset()
         starter.goPlayUrl(url, headers)
     }
 
