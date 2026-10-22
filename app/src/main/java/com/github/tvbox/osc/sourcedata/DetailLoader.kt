@@ -86,6 +86,9 @@ class DetailLoader(
                     ""
                 }
             }, if (fallback) 6_000L else sourceBean.getPlayTimeoutSeconds() * 1000L, "echo--getDetail--" + sourceBean.key)
+            val body = json.orEmpty()
+            LOG.i("echo-detail-body key=" + sourceBean.key + " id=" + id + " len=" + body.length
+                    + " fallback=" + fallback + " head=" + body.take(200).replace('\n', ' '))
             resultParser.json(detailResult, json, sourceBean.key, "", requestToken)
         }
     }
