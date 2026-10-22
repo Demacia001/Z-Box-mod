@@ -72,18 +72,6 @@ class IsoUdfEdgeCaseTest {
         assertEquals("BDMV directory missing", error.message)
     }
 
-    @Test
-    fun snapshotRoundTripsNestedBdmv() {
-        val image = UdfImageBuilder(useMetadataPartition = false, nestedBdmv = true).image()
-        val volume = UdfVolume.open(reader(image), image.size.toLong())
-
-        val snapshot = requireNotNull(volume.snapshot()) { "snapshot missing" }
-        val decoded = requireNotNull(IsoVolumeSnapshot.decode(snapshot.encode())) { "snapshot decode failed" }
-        val selection = IsoLocator(CachedVolume(decoded.directories, reader(image))).locateSelection()
-
-        assertEquals(1, selection.segments.size)
-    }
-
     private fun openError(image: ByteArray): String {
         val error = assertThrows(IsoFormatException::class.java) {
             UdfVolume.open(reader(image), image.size.toLong())

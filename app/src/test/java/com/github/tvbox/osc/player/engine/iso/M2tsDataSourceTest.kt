@@ -6,6 +6,7 @@ import androidx.media3.datasource.DataSource
 import androidx.media3.datasource.DataSpec
 import androidx.media3.datasource.TransferListener
 import java.io.ByteArrayOutputStream
+import java.io.IOException
 import java.util.Random
 import org.junit.Assert.assertArrayEquals
 import org.junit.Assert.assertEquals
@@ -167,17 +168,19 @@ class M2tsDataSourceTest {
     }
 
     @Test
-    fun truncatedUpstream_returnsEndOfInput() {
+    fun truncatedUpstream_throwsInsteadOfFakingEof() {
         val image = image(PACKETS)
         val span = m2tsSpan(0, 400)
         val source = ImageDataSource(image, span.offset.toInt(), Int.MAX_VALUE, limit = M2TS_TS_SIZE)
         val active = M2tsStream(source, 0, 400, span.length)
         val buffer = ByteArray(256)
         var total = 0
-        while (true) {
-            val read = active.read(buffer, 0, buffer.size)
-            if (read == C.RESULT_END_OF_INPUT) break
-            total += read
+        assertThrows(IOException::class.java) {
+            while (true) {
+                val read = active.read(buffer, 0, buffer.size)
+                if (read == C.RESULT_END_OF_INPUT) break
+                total += read
+            }
         }
         assertEquals(M2TS_TS_SIZE, total)
     }

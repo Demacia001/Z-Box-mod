@@ -24,7 +24,7 @@ import com.github.tvbox.osc.player.engine.iso.BdavLoadErrorPolicy
 import com.github.tvbox.osc.player.engine.iso.IsoDataSource
 import com.github.tvbox.osc.player.engine.iso.IsoExtractorsFactory
 import com.github.tvbox.osc.player.engine.iso.IsoPlaylistState
-import com.github.tvbox.osc.player.engine.iso.IsoPrepare
+import com.github.tvbox.osc.player.engine.iso.withPlaylistTargets
 import com.github.tvbox.osc.player.engine.iso.IsoSelection
 import com.github.tvbox.osc.player.engine.iso.IsoThroughput
 import com.github.tvbox.osc.player.engine.iso.M2tsDataSource
@@ -108,7 +108,6 @@ class MediaSources(
     ): MediaSource {
         IsoThroughput.beginSession()
         IsoPlaylistState.reset()
-        IsoPrepare.cancel()
         val mediaItem = buildMediaItem(uri, headers)
         val concatRef = AtomicReference<ConcatenatingMediaSource>()
         val appended = AtomicBoolean(false)
@@ -118,7 +117,7 @@ class MediaSources(
                 if (!selection.multiSegment) return@factory
                 if (!appended.compareAndSet(false, true)) return@factory
                 val concat = concatRef.get() ?: return@factory
-                val children = selection.segments.drop(1).map { segment ->
+                val children = selection.withPlaylistTargets().drop(1).map { segment ->
                     isoProgressiveSource(mediaItem, IsoDataSource.factory(headers, segment))
                 }
                 concat.addMediaSources(children)

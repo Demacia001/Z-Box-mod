@@ -10,6 +10,7 @@ internal class UdfParser(
 ) {
 
     private val spans = ArrayList<Span>()
+    private val reads = java.util.concurrent.atomic.AtomicInteger()
 
     fun readFileEntry(
         location: FileLocation,
@@ -85,10 +86,13 @@ internal class UdfParser(
         cached(start, length)?.let { return it }
         val fetch = minOf(maxOf(length.toLong(), PREFETCH_BYTES.toLong()), totalLength - start).toInt()
         val bytes = reader.read(start, fetch)
+        reads.incrementAndGet()
         if (bytes.size < length) throw IsoFormatException("short read: ${bytes.size}/$length")
         remember(start, bytes)
         return bytes.copyOfRange(0, length)
     }
+
+    fun readRequests(): Int = reads.get()
 
     fun prefetch(start: Long, length: Int): Boolean {
         if (length <= 0 || start < 0 || start >= totalLength) return false
@@ -213,8 +217,8 @@ internal class UdfParser(
 
     private companion object {
         const val MAX_FILE_ENTRY_BLOCKS = 4
-        const val PREFETCH_BYTES = 32 * 1024
-        const val MAX_SPANS = 16
+        const val PREFETCH_BYTES = 128 * 1024
+        const val MAX_SPANS = 32
         const val LARGE_FILE_LIMIT = 4L * 1024L * 1024L * 1024L
     }
 }

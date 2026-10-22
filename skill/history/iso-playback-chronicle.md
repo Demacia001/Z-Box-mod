@@ -915,6 +915,134 @@ echo-iso-error:BDMV directory missing
 
 ---
 
+### 14.16 多段大盘在网盘源上「能解析但播不动」:连接风暴触发限速(2026-10-23)
+
+**盘与源**:35.5GB / 81 段 / **202 个 mpls** / 需求 4.42MB/s(DTS-HD MA7.1 原盘);夸克直链经本地代理 `http://127.0.0.1:5266?url=…&thread=32&header=…`。
+
+**现象**:起播几十秒后弹「网盘限速,带宽不足」,或直接 `Source error`(`unexpected end of stream`);卡在某个固定 position 反复重连。
+
+**排查走过的五条弯路(按时间,均已判负)**
+
+| # | 改动 | 结果 | 教训 |
+|---|---|---|---|
+| 1 | `m2tsReadLength` 在 `UNSET` 时 cap 成 8MB | 画面冻结、进度条继续,`StuckPlayerException` | **`open()` 返回值是「源有多长」不是「本次读多少」**,截断它会让 media3 认为整段只有那么大(§5-20) |
+| 2 | 同上改 1.1MB | 81 段各 open 一次各读 1.1MB,卡在 41ms | 同 1 |
+| 3 | `M2tsStream` 加 `recover()` 挂在 `read <= 0` | `echo-iso-recover` **0 命中**,报错照旧 | **`unexpected end of stream` 是 `read()` 抛 IOException,不是返回 -1**(§5-21) |
+| 4 | 窗口 8MB/1.1MB + 断点续传 | `recover` 17 次全 true 但全卡在同一 position | 续传能吃掉单次抖动,吃不掉持续限速 |
+| 5 | `IsoDataSource.openWindow` 改开放结尾 `bytes=X-` + 4MB | 仍报错,卡点从 48MB 变 20MB | 不是 Range 形式的问题 |
+
+期间还查了两条死胡同:①以为 media3 官方有 ISO 模块 —— `developer.android.com` 与 `androidx/media` 仓库对应路径**均为 404**,`IsoDiscPreparation` 全网零命中;②以为 fongmi 直连 —— 抓包显示**它也走 `127.0.0.1:5266` 同一个代理**。
+
+**真正根因(抓包定量)**
+
+按秒统计发往代理的 SYN:
+
+```
+05:19:26      1       起播
+05:19:33    168       mpls 扫描
+05:19:34    234       ← 两秒内 402 个连接
+05:19:39~    1~2/秒   正常播放
+05:20:10     20       clpi 预取
+05:20:26      5       ← fongmi 那一段
+```
+
+全窗口统计:**SYN 503 个 / Range 672 个 = 1.34 请求每连接** —— 几乎每个请求都新建 TCP 连接;fongmi 全程只有 5 个连接。⇒ **不是「请求多」,是「连接不复用」。** `IsoMplsFetch` 4 线程并发,四路同时要连接,OkHttp 池里没有空闲可复用,只能新建;两秒 402 个连接被上游判成异常流量,限速到 1MB/s(`bandwidth-mid` 实测稳定在 1048576)。**不是带宽不够,是自己把上游打限速了。**
+
+**修复与验证(2026-10-23 05:41 装机,待实测)**:`IsoMplsFetch.THREADS` 4→1 串行,前一个 close 后连接归还池供下一个复用;契约变更同步到单测(`load_usesMoreThanOneThreadForNetworkedEntries` → `load_keepsNetworkedEntriesOnSingleThread`,断言单线程+顺序保持)。预期 SYN 从 402 降到个位数,`echo-iso-mpls:...:fetch=` 不应变慢(并发 4 时 fetch 也是 6s,说明上游本就限流)。
+
+**P0 前提被证伪(重要)**:同日用临时 dump 拿到该盘的 `index.bdmv`/`MovieObject.bdmv`(`源码/bdmv/`),按 libbluray `index_parse.c` 逐字节核对 —— 偏移 8 = IndexesStartAddress(78)、偏移 40 = AppInfo length(34,与源码断言一致)、偏移 78 = index_len(614),其后的 `object_type` 2 bit = **2(BD-J)**。**该盘是 BD-J 盘**,first_play/top_menu 都在 Java 菜单里,任何 HDMV 导航快路径都会回落全量扫描 ⇒ **P0 解决不了这条**(§5-22)。
+
+**对照实现**:fongmi 5.7.7(设备实测 APK)自带一套自研 ISO 模块(`IsoDiscPreparation`/`IsoNavigation`/`IsoMediaSource`/`IsoDiskCache`,与本文 §3 同构,类名被 R8 混淆但字符串标识符完整),走 HDMV 导航**只读 1 个 mpls**,全程连接数个位数;其 Range 为 4MB 块 + 混用开放结尾 `bytes=X-`,50 秒读 445MB 无异常。
+
+**判据**:抓包按秒统计 `dst port 5266` 的 SYN,起播窗口不得出现数百/秒尖峰;`echo-iso-bps` 持续低于需求 50% 且 `bandwidth-mid` 实测≈1048576 即为限速特征;`echo-iso-clpi-prefetch:n/m` 中 `m<n` 说明后台预取也在被拒。
+
+**结论与后续**:根因是**连接不复用**(不是读取方式,也不是单纯的请求数量)。已改串行让连接可复用;**P0 对这张 BD-J 盘无效**,只能作为「非 BD-J 大盘」的长期优化。**调窗口大小、改 Range 形式、加重试都治不了这条** —— 它们改的是每个请求怎么发,而问题在于每次请求都换了条连接。
+
+**最终修复(05:42 实测通过):两条要求互相冲突,必须同时满足**
+
+| 要求 | 做法 | 代价 |
+|---|---|---|
+| 连接可复用 | 上游用**固定长度** `bytes=X-(X+4MB-1)`,读完才 close | 提前 EOF 会抛 `unexpected end of stream` |
+| 截断不致命 | `IsoDataSource.read` 捕获该异常 → 转 `END_OF_INPUT` | 数据不完整,需上层补 |
+
+`openWindow` 用固定长度 `window.length`;`isUpstreamTruncation()` 判断后返回 `C.RESULT_END_OF_INPUT`(新增 `echo-iso-eof`),由 `M2tsStream.recover()` 换连接从当前 position 续读。
+
+**实测对比(同一张盘、同一台机)**
+
+| 版本 | SYN | 复用率 | 卡点 | 报错 |
+|---|---|---|---|---|
+| 并发 4 + 固定长度 | 503 | 1.34 | 20MB | 有 |
+| 串行 1 + 开放结尾 | 50 | 3.24 | 176MB | 有 |
+| 串行 1 + 固定长度 + EOF 容忍 | — | — | 播到 25.8s | **无** |
+
+**遗留**:实际 59 秒只播 25.8 秒,带宽 1.25→3.32MB/s 低于需求 4.42MB/s ⇒ 无报错但有缓冲停顿。属源侧限速的剩余影响,不是代码错误。
+
+**追加:卡顿换形态 → 后台任务抢带宽 → 带宽门控(05:53)**
+
+截断修好后,卡顿变成「起播后固定时刻卡 + 进度滚回 0」:13 秒(快照构建)、后来 35 秒(延迟 20s + 扫描 13s + 2s)。判据是 `echo-iso-eof:0:4283544:4283544` —— **`windowRemaining` 与 `bytesRemaining` 相等**,意思是新连接刚建好就 EOF、一个字节没读到。
+
+**两次误判**:先怪 clpi 预取(延迟改 30s,报错照旧);再怪执行时机(`awaitTurn` 前移 + 延迟 20s),结果卡顿只是从 13s 推到 35s。**「什么时候做」这个问法本身是错的** —— 这张盘需求 4.42MB/s、实测 3.3MB/s,余量为负,任何后台 IO 都会拖死播放。
+
+**最终处置**:`IsoPrepare` 在延迟后先判余量,`bps < required × 1.5` 整段跳过(`echo-iso-prepare-skip`)。取舍是这类盘快照永不建成、每次冷启动全扫 202 个 mpls —— **播放不卡 > 起播快**。
+
+**实测(05:50:55 起播)**:75 秒无报错,`eof` 31 次全吞、`recover` 25 次;但 **`echo-iso-prepare-skip` 0 次** —— 当轮带宽 4~10MB/s(均值 7.2)属环境变好,后台任务照跑也没卡。**所以门控那半边(带宽不足时让路)仍未实测**,不能记为"已验证"。
+
+**追加:扫描量优化 —— 按文件大小取 top 16(05:59 实测通过)**
+
+用户提问「快照和 clpi 预取有收益吗、是否该移除、fongmi 为什么每次起播都同样快」。查证三点:
+
+1. **fongmi 有缓存**(dex 里 `IsoCache` + `IsoDiskCache`),不是没有缓存机制 —— 直觉与事实相反;
+2. 它快是因为**扫描量小**:抓包全程仅 5 个连接,而我们全读 202 个 mpls(402 个连接);
+3. 快照收益实测 `prepare→codec-init` 5.29s→2.20s(−3.09s)、clpi 预取省 seek 0.5~0.6s ⇒ **不该移除,该减量**。
+
+**改动**:`probePlaylists` 的 `entries` 本就按 `it.length` 降序排好(只是全读),截断到 `MAX_PLAYLISTS = 16`;日志加 `scanned=`。
+
+**实测(05:58:40 起播)**
+
+| 指标 | 改前 | 改后 |
+|---|---|---|
+| mpls 请求 | 202 | **16** |
+| `fetch` | 6138ms | **2158ms(−65%)** |
+| `chosen` | `00801.mpls` / 81 段 / 5495280ms | **完全一致** |
+| 报错 | 有 | **0** |
+
+**依据**:`top=00801.mpls=81段;00800.mpls=81段;00302.mpls=1段` —— 正片条目多、文件最大,前几个必中。**对 BD-J 盘同样有效**(不依赖 HDMV 导航)。风险是诱饵盘,但 top N 只缩小候选、最终仍按 duration/unique 选,风险不高于原方案。
+
+**追加:请求"正好停在 segment 末尾" → 跨段读(06:17 实测通过)**
+
+top16 之后卡点变成确定性的:播到某段末尾就连续 `echo-iso-truncated` 并全败。`echo-iso-span:188743680:152704:192759504:155952:1:192915456:192915456` 显示 `runs=1`、不越界,但 `position+length = 188896384` **正好等于 segment 逻辑末尾** —— 请求范围停在段尾,上游返回短响应。fongmi 用固定 4MB 块,永远不停在段尾,所以它没事。
+
+**改法:让 target 能看整条 playlist** —— `IsoPlayTarget` 加 `playlistRuns`/`playlistOffset`/`playlistLength`(`availableLength` 在有 playlist 时返回 playlist 剩余,另留 `segmentLength` 保段长);`IsoSelection.totalLength` 改用 `segmentLength`;新增 `withPlaylistTargets()` 合并所有段 runs;`isoReadWindows` 用 `playlistRuns` 且 `cursor = playlistOffset + startOffset + position`;**`span` 固定 4MB 不再被段内剩余截断**(关键)。
+
+**追加:禁用后台任务(20 秒准时卡的终点)**
+
+「20 秒准时卡」= `IsoPrepare.DELAY_MS = 20_000`。带宽门控防不住(判平均带宽,而快照是瞬时抢占)。top16 后快照收益从 6s 缩到 2.2s,代价没变 ⇒ `ENABLED = false` 禁用,打 `echo-iso-prepare-off`。
+
+**最终实测(06:17:19 起播)**:零 `player-error`、零 `truncated`,播 69 秒到 59 秒位置;`echo-iso-span:...:4283544:1:1484955648:24538718208` —— `spanLen` 是完整 4MB、**`availableLength` 变成整条 playlist 的 24.5GB**。带宽 4.7~10.1MB/s。
+
+**代价**:快照不建(每次冷启动全扫 top16,约 4.9s)、clpi 按需读(首次 seek 慢 0.5~0.6s)。**整条链路**:连接复用 → 固定长度 → EOF 容忍 → recover 续读 → 假 EOF 改抛异常 → 跨段读 → 禁用后台任务。
+
+**追加:首次冷启动压到 4.75s(06:28)**
+
+拆时间线发现 9.28s 里 **6.7s(72%)在两个目录遍历**上。根因:`list()` 每个子项一次 `readFileEntry`,而 `PREFETCH_BYTES=32KB × MAX_SPANS=16` 只有 512KB,装不下 2.1MB 的 metadata 分区 ⇒ 反复驱逐、反复请求。改 `PREFETCH_BYTES`→128KB、`MAX_SPANS`→32(4MB),并把 `readVolumeRecognition` 预取改成 512KB 一次覆盖 VRS→AVDP。
+
+| 阶段 | 原始 | 优化后 |
+|---|---|---|
+| UDF 引导 | 1153ms | 684ms(`avdp` 222→0、`fsd` 211→2) |
+| STREAM 遍历 | 2134ms | 677ms |
+| PLAYLIST 扫描 | 4543ms | 1803ms |
+| **总计** | **9.28s** | **4.75s(−49%)** |
+
+**追加:top8 的系统性盲区 —— 单段长片被漏(07:00)**
+
+另一部资源(264 个 mpls)有声无画面。`chosen=00200.mpls`、`items=205`、`duration=7560885`、`unique=170169` —— **诱饵**(duration 是 unique 的 44 倍,循环重复),指向 MPEG-2 菜单,设备无该解码器。而 `pickLongestPlaylist` 已按 unique 排序,仍选它,说明**正片不在 top8**。
+
+真因:**正片 `00800.mpls` 是单段(`items=1`),文件极小,按大小排序必然排最后**;诱饵 items 多、文件大,稳居第一 ⇒ 「按大小取 top N」对单段长片是**系统性盲区**。
+
+**改法**:加 BD 惯例 —— 主片通常是 `00800/00801.mpls`,`entries = (preferred + all.take(8)).distinctBy{name}`(10 个请求),**优先读但不强制选**,最终仍按 unique 排序。实测 `chosen=00800.mpls items=1 duration=6760754 unique=6760754`(**两者相等=真片**)、`video/avc` 硬解、报错 0、画面正常。
+
+---
+
 ## 丙、seek 与倍速实验记录(原 spec §11.5–§11.10;含已判负的分支与被推翻的中间结论)
 
 ### 11.5 S0 实测结果(2026-10-20,**已执行**)

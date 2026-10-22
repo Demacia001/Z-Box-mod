@@ -100,6 +100,8 @@ class UdfVolume private constructor(
     internal fun readImageRange(offset: Long, length: Int): ByteArray =
         parser.readRange(offset, length)
 
+    internal fun readRequests(): Int = parser.readRequests()
+
     override fun readEntry(entry: IsoEntry): ByteArray =
         when (val data = entry.data) {
             is EntryData.Embedded -> data.bytes
@@ -218,7 +220,10 @@ class UdfVolume private constructor(
             for (partition in partitions) {
                 if (partition !is Partition.Metadata) continue
                 for (extent in partition.extents) {
-                    if (extent.length <= 0 || extent.length > MAX_PREFETCH_BYTES) continue
+                    if (extent.length <= 0 || extent.length > MAX_PREFETCH_BYTES) {
+                        logger("prefetch-skip:${extent.offset}+${extent.length}")
+                        continue
+                    }
                     val started = parser.prefetch(extent.offset, extent.length.toInt())
                     logger("prefetch:${extent.offset}+${extent.length}:${if (started) 1 else 0}")
                 }
@@ -239,7 +244,9 @@ class UdfVolume private constructor(
 
         private fun readVolumeRecognition(): String {
             if (totalLength < 32L * SECTOR_SIZE) throw IsoFormatException("image too small")
-            val data = parser.readRange(VRS_FIRST_SECTOR * SECTOR_SIZE, VRS_SECTORS * SECTOR_SIZE)
+            val start = VRS_FIRST_SECTOR * SECTOR_SIZE
+            val prefetch = minOf(VRS_PREFETCH_BYTES, totalLength - start).toInt()
+            val data = parser.readRange(start, prefetch)
             var version: String? = null
             for (index in 0 until VRS_SECTORS) {
                 val sector = index * SECTOR_SIZE
@@ -409,11 +416,12 @@ private fun readEntry(
 }
 
 private const val MAX_DESCRIPTOR_CHUNK = 64 * 1024
-private const val MAX_PREFETCH_BYTES = 1024L * 1024L
+private const val MAX_PREFETCH_BYTES = 64L * 1024L
 private const val MAX_PARTITION_MAPS = 64
 private const val METADATA_MAP_MIN_LENGTH = 58
 private const val VRS_FIRST_SECTOR = 16L
 private const val VRS_SECTORS = 16
+private const val VRS_PREFETCH_BYTES = 512L * 1024L
 private const val VRS_TAG_OFFSET = 1
 private const val VRS_TAG_LENGTH = 5
 private const val VSD_BEGIN = "BEA01"

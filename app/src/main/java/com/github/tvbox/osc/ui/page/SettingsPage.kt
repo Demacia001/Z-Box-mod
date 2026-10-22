@@ -45,7 +45,6 @@ import com.github.tvbox.osc.R
 import com.github.tvbox.osc.io.FileUtils
 import com.github.tvbox.osc.net.OkGoHelper
 import com.github.tvbox.osc.player.effect.anime4k.Anime4kTier
-import com.github.tvbox.osc.player.engine.iso.IsoDiskCache
 import com.github.tvbox.osc.ui.activity.ConfigManageActivity
 import com.github.tvbox.osc.ui.activity.PlaySettingsActivity
 import com.github.tvbox.osc.ui.activity.PreferenceSettingsActivity
@@ -145,7 +144,6 @@ class SettingsViewModel : ViewModel() {
         viewModelScope.launch {
             val text = withContext(Dispatchers.IO) {
                 FileUtils.clearCache()
-                IsoDiskCache.clear()
                 TmdbPoster.clearCachedPosters()
                 cacheSizeText()
             }
@@ -155,7 +153,7 @@ class SettingsViewModel : ViewModel() {
     }
 
     private fun cacheSizeText(): String =
-        FileUtils.formatCacheSize(FileUtils.getCacheSize() + IsoDiskCache.bytesOnDisk())
+        FileUtils.formatCacheSize(FileUtils.getCacheSize())
 
     private fun applyCacheSizeText(text: String) {
         if (text != cacheSizeText) {

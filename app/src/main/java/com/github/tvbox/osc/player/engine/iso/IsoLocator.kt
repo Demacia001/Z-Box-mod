@@ -16,6 +16,9 @@ data class IsoPlayTarget(
     val name: String,
     val startOffset: Long = 0L,
     val durationMs: Long = 0L,
+    val playlistRuns: List<IsoPlayRun>? = null,
+    val playlistOffset: Long = 0L,
+    val playlistLength: Long = 0L,
 ) {
     constructor(
         m2tsOffset: Long,
@@ -27,7 +30,11 @@ data class IsoPlayTarget(
 
     val m2tsOffset: Long get() = runs.firstOrNull()?.offset ?: 0L
 
-    val availableLength: Long get() = (m2tsLength - startOffset).coerceAtLeast(0L)
+    val segmentLength: Long get() = (m2tsLength - startOffset).coerceAtLeast(0L)
+
+    val availableLength: Long get() =
+        if (playlistRuns != null) (playlistLength - playlistOffset - startOffset).coerceAtLeast(0L)
+        else segmentLength
 }
 
 internal fun coalesceRuns(extents: List<IsoExtent>): List<IsoPlayRun> {
@@ -56,9 +63,24 @@ data class IsoSelection(
 ) {
     val primary: IsoPlayTarget get() = segments.first()
 
-    val totalLength: Long get() = segments.sumOf { it.availableLength }
+    val totalLength: Long get() = segments.sumOf { it.segmentLength }
 
     val multiSegment: Boolean get() = segments.size > 1
+}
+
+internal fun IsoSelection.withPlaylistTargets(): List<IsoPlayTarget> {
+    val runs = segments.flatMap { it.runs }
+    val total = runs.sumOf { it.length }
+    var offset = 0L
+    return segments.map { segment ->
+        val copy = segment.copy(
+            playlistRuns = runs,
+            playlistOffset = offset,
+            playlistLength = total,
+        )
+        offset += segment.runs.sumOf { it.length }
+        copy
+    }
 }
 
 internal fun matchPlaylistSegments(
@@ -311,13 +333,35 @@ class IsoLocator(private val volume: IsoFileSource) {
             return emptyList()
         }
         val dirStarted = System.currentTimeMillis()
-        val entries = volume.list(playlistDir)
+        val all = volume.list(playlistDir)
             .filter { !it.directory && it.name.lowercase(Locale.ROOT).endsWith(MPLS) }
             .sortedByDescending { it.length }
+        val entries = if (all.size <= FULL_SCAN_LIMIT) all else {
+            val preferred = all.filter { it.name.lowercase(Locale.ROOT) in MAIN_PLAYLISTS }
+            (preferred + all.take(MAX_PLAYLISTS)).distinctBy { it.name }
+        }
         val dirMs = System.currentTimeMillis() - dirStarted
         if (entries.isEmpty()) {
             LOG.i("echo-iso-mpls:none emptyDir")
             return emptyList()
+        }
+        val fastTargets = entries.filter { it.name.lowercase(Locale.ROOT) in MAIN_PLAYLISTS }
+        if (fastTargets.isNotEmpty() && fastTargets.size < entries.size) {
+            val fastStarted = System.currentTimeMillis()
+            val fastPayloads = IsoMplsFetch.load(fastTargets) { entry ->
+                val data = volume.readEntry(entry)
+                MplFetchResult(data, parseMplPlaylist(entry.name, data))
+            }
+            val fastParsed = fastTargets.indices.mapNotNull { fastPayloads[it]?.playlist }
+            val fastBest = pickLongestPlaylist(fastParsed)
+            if (fastBest != null && uniqueDurationMs(fastBest) >= MIN_MAIN_DURATION_MS) {
+                LOG.i(
+                    "echo-iso-mpls-fast:${fastBest.name}:${uniqueDurationMs(fastBest)}:" +
+                        "segments=${fastBest.segments.size}:dir=$dirMs:" +
+                        "fetch=${System.currentTimeMillis() - fastStarted}",
+                )
+                return fastParsed
+            }
         }
         val parsed = ArrayList<IsoPlaylist>(entries.size)
         val skipped = ArrayList<String>()
@@ -362,7 +406,7 @@ class IsoLocator(private val volume: IsoFileSource) {
         }
         val chosen = pickLongestPlaylist(parsed)
         LOG.i(
-            "echo-iso-mpls:count=${entries.size}:parsed=${parsed.size}:skipped=${skipped.size}:" +
+            "echo-iso-mpls:count=${all.size}:scanned=${entries.size}:parsed=${parsed.size}:skipped=${skipped.size}:" +
                 "chosen=${chosen?.name}:items=${chosen?.segments?.size}:" +
                 "duration=${chosen?.durationMs}:unique=${chosen?.let(::uniqueDurationMs)}:" +
                 "first=${chosen?.segments?.firstOrNull()?.clipId}:" +
@@ -425,7 +469,7 @@ internal class MplFetchResult(val bytes: ByteArray, val playlist: IsoPlaylist?)
 
 internal object IsoMplsFetch {
 
-    private const val THREADS = 4
+    private const val THREADS = 1
     private const val TIMEOUT_MS = 12_000L
 
     private val ordinal = AtomicInteger(0)
@@ -485,3 +529,7 @@ internal object IsoMplsFetch {
         }
 }
 
+private const val MAX_PLAYLISTS = 8
+private const val FULL_SCAN_LIMIT = 16
+private const val MIN_MAIN_DURATION_MS = 600_000L
+private val MAIN_PLAYLISTS = setOf("00800.mpls", "00801.mpls")

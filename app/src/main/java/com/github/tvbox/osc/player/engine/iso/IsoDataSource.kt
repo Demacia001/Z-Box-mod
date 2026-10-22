@@ -9,6 +9,7 @@ import com.github.tvbox.osc.player.engine.MediaSources
 import com.github.tvbox.osc.player.engine.OkHttpDataSource
 import com.github.tvbox.osc.util.LOG
 import java.io.IOException
+import java.net.ProtocolException
 import java.util.HashMap
 import java.util.concurrent.TimeUnit
 import java.util.concurrent.atomic.AtomicReference
@@ -109,8 +110,19 @@ class IsoDataSource internal constructor(
             read
         } catch (e: IOException) {
             logAuthFailure(e, logger)
+            if (isUpstreamTruncation(e)) {
+                logger("echo-iso-eof:$windowIndex:$windowRemaining:$bytesRemaining")
+                bytesRemaining = 0
+                return C.RESULT_END_OF_INPUT
+            }
             throw e
         }
+    }
+
+    private fun isUpstreamTruncation(e: IOException): Boolean {
+        val cause = e.cause ?: return false
+        if (cause !is ProtocolException) return false
+        return cause.message?.contains("unexpected end of stream") == true
     }
 
     private fun advanceWindow(): Boolean {
@@ -251,7 +263,7 @@ internal class IsoTargetProvider(
         IsoPlaylistState.update(info.selection)
         IsoThroughput.setTarget(info.selection.totalLength)
         onSelection(info.selection)
-        val target = info.selection.primary
+        val target = info.selection.withPlaylistTargets().first()
         resolved.compareAndSet(null, target)
         return resolved.get() ?: target
     }
@@ -274,11 +286,13 @@ internal fun isoReadWindows(
         minOf(requestedLength, available)
     }
     if (length <= 0L) return emptyList()
-    val windows = ArrayList<IsoReadWindow>(target.runs.size)
-    var cursor = target.startOffset + position
+    val runs = target.playlistRuns ?: target.runs
+    val base = target.playlistOffset + target.startOffset
+    val windows = ArrayList<IsoReadWindow>(runs.size)
+    var cursor = base + position
     var remaining = length
     var runStart = 0L
-    for (run in target.runs) {
+    for (run in runs) {
         val runEnd = runStart + run.length
         if (remaining > 0L && cursor >= runStart && cursor < runEnd) {
             val inside = cursor - runStart

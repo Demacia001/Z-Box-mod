@@ -1,5 +1,6 @@
 package com.github.tvbox.osc.player.engine.iso
 
+import java.util.Collections
 import java.util.concurrent.ConcurrentHashMap
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNull
@@ -23,16 +24,19 @@ class IsoMplsFetchTest {
     }
 
     @Test
-    fun load_usesMoreThanOneThreadForNetworkedEntries() {
+    fun load_keepsNetworkedEntriesOnSingleThread() {
         val entries = (0 until 8).map { index -> networked("$index.mpls", index.toLong()) }
         val threads = ConcurrentHashMap.newKeySet<Long>()
+        val order = Collections.synchronizedList(ArrayList<String>())
         IsoMplsFetch.load(entries) { entry ->
             threads.add(Thread.currentThread().id)
-            Thread.sleep(30)
+            order.add(entry.name)
+            Thread.sleep(5)
             MplFetchResult(entry.name.toByteArray(), null)
         }
 
-        assertTrue(threads.size > 1)
+        assertEquals(1, threads.size)
+        assertEquals(entries.map { it.name }, order)
     }
 
     @Test

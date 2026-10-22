@@ -40,7 +40,7 @@ internal class IsoResolver(
         val key = isoFingerprint(probe.totalLength, probe.firstBytes)
         logger("echo-iso-volume-key:${key.takeLast(12)}:${probe.firstBytes.size}")
         val info = try {
-            IsoVolumeCache.load(key) { loadVolume(key, probe.totalLength, reader) }
+            IsoVolumeCache.load(key) { loadVolume(probe.totalLength, reader) }
         } catch (e: IsoFormatException) {
             logger("echo-iso-error:${e.message}")
             throw e
@@ -61,37 +61,17 @@ internal class IsoResolver(
         return info.copy(selection = aligned)
     }
 
-    private fun loadVolume(key: String, totalLength: Long, reader: RangeBlockReader): IsoVolumeInfo {
-        val cached = IsoDiskCache.load(key)
-        if (cached != null) {
-            try {
-                val locator = IsoLocator(CachedVolume(cached.directories, reader))
-                val selection = locator.locateSelection()
-                logger("echo-iso-cache-hit:${cached.directories.size}:${selection.segments.size}")
-                IsoPrepare.schedule(key, locator, selection, null)
-                return IsoVolumeInfo(
-                    totalLength,
-                    selection,
-                    locator,
-                    locator.selectedStreams,
-                    locator.selectedVideoPid,
-                )
-            } catch (e: IsoFormatException) {
-                logger("echo-iso-cache-stale:${e.message}")
-                IsoDiskCache.evict(key)
-            }
-        }
-        return parse(key, totalLength, reader)
-    }
+    private fun loadVolume(totalLength: Long, reader: RangeBlockReader): IsoVolumeInfo =
+        parse(totalLength, reader)
 
-    private fun parse(key: String, totalLength: Long, reader: RangeBlockReader): IsoVolumeInfo {
+    private fun parse(totalLength: Long, reader: RangeBlockReader): IsoVolumeInfo {
         val volume = UdfVolume.open(reader, totalLength) { logger("echo-iso-udf-$it") }
         val locator = IsoLocator(volume)
         val selection = locator.locateSelection()
+        logger("echo-iso-read-count:${volume.readRequests()}")
         val target = selection.primary
         logger("echo-iso-udf-ok:${target.m2tsOffset}:${target.m2tsLength}")
         logger("echo-iso-target:${target.name}:${target.m2tsOffset}:${target.m2tsLength}")
-        IsoPrepare.schedule(key, locator, selection, { buildSnapshot(volume) })
         return IsoVolumeInfo(
             totalLength,
             selection,
@@ -101,34 +81,18 @@ internal class IsoResolver(
         )
     }
 
-    private fun buildSnapshot(volume: UdfVolume): ByteArray? {
-        val started = System.currentTimeMillis()
-        val snapshot = try {
-            volume.snapshot(logger)
-        } catch (e: Exception) {
-            logger("echo-iso-cache-fail:${e.javaClass.simpleName}:${e.message}")
-            return null
-        } ?: run {
-            logger("echo-iso-cache-incomplete")
-            return null
-        }
-        val bytes = snapshot.encode()
-        logger("echo-iso-cache-build:${bytes.size}:${System.currentTimeMillis() - started}")
-        return bytes
-    }
-
     private fun readProbe(uri: Uri, factory: DataSource.Factory): IsoProbe {
         val source = factory.createDataSource()
         try {
-            val opened = source.open(
-                DataSpec.Builder()
-                    .setUri(uri)
-                    .setPosition(0)
-                    .setLength(C.LENGTH_UNSET.toLong())
-                    .build(),
-            )
-            val headers = source.responseHeaders
-            val total = probeTotalLength(headers, opened)
+            var opened = source.open(probeSpec(uri, PROBE_SIZE.toLong()))
+            var headers = source.responseHeaders
+            var total = probeTotalLength(headers, C.LENGTH_UNSET.toLong())
+            if (total == C.LENGTH_UNSET.toLong()) {
+                source.close()
+                opened = source.open(probeSpec(uri, C.LENGTH_UNSET.toLong()))
+                headers = source.responseHeaders
+                total = probeTotalLength(headers, opened)
+            }
             logger("echo-iso-probe:open=$opened:total=$total:mode=${sourceMode(headers)}:${describeHeaders(headers)}")
             if (total == C.LENGTH_UNSET.toLong() || total <= 0) {
                 throw IsoFormatException("unknown length")
@@ -139,12 +103,8 @@ internal class IsoResolver(
             }
             val size = minOf(total, PROBE_SIZE.toLong()).toInt()
             val bytes = ByteArray(size)
-            val direct = if (opened == C.LENGTH_UNSET.toLong()) {
-                size
-            } else {
-                minOf(opened, size.toLong()).toInt()
-            }
-            readExactly(source, bytes, direct)
+            val direct = readUpTo(source, bytes)
+            logger("echo-iso-probe-read:$direct/$size")
             if (direct < size) {
                 val rest = DataSourceRangeReader(factory, uri, logger).read(direct.toLong(), size - direct)
                 System.arraycopy(rest, 0, bytes, direct, rest.size)
@@ -162,16 +122,21 @@ internal class IsoResolver(
         }
     }
 
-    private fun readExactly(source: DataSource, target: ByteArray, count: Int) {
+    private fun probeSpec(uri: Uri, length: Long): DataSpec =
+        DataSpec.Builder()
+            .setUri(uri)
+            .setPosition(0)
+            .setLength(length)
+            .build()
+
+    private fun readUpTo(source: DataSource, target: ByteArray): Int {
         var read = 0
-        while (read < count) {
-            val got = source.read(target, read, count - read)
-            if (got == C.RESULT_END_OF_INPUT) break
+        while (read < target.size) {
+            val got = source.read(target, read, target.size - read)
+            if (got <= 0) break
             read += got
         }
-        if (read != count) {
-            throw IsoFormatException("probe short read: $read/$count")
-        }
+        return read
     }
 
     private fun describeHeaders(headers: Map<String, List<String>>): String {
@@ -198,7 +163,7 @@ internal class IsoResolver(
         const val PROBE_SIZE = 4096
         const val MAX_PROBES = 8
         const val PROBE_HEX_BYTES = 16
-        val PROBE_HEADER_KEYS = listOf("Content-Type", "Content-Length", CONTENT_RANGE_HEADER, "Accept-Ranges")
+        val PROBE_HEADER_KEYS = listOf("Content-Type", CONTENT_LENGTH_HEADER, CONTENT_RANGE_HEADER, ACCEPT_RANGES_HEADER)
     }
 }
 
@@ -299,8 +264,12 @@ internal object IsoVolumeCache {
 internal fun headerValue(headers: Map<String, List<String>>, key: String): String? =
     headers.entries.firstOrNull { it.key.equals(key, ignoreCase = true) }?.value?.firstOrNull()
 
-internal fun probeTotalLength(headers: Map<String, List<String>>, openedLength: Long): Long =
-    parseContentRangeTotal(headerValue(headers, CONTENT_RANGE_HEADER)) ?: openedLength
+internal fun probeTotalLength(headers: Map<String, List<String>>, openedLength: Long): Long {
+    val contentRange = headerValue(headers, CONTENT_RANGE_HEADER)
+    if (contentRange != null) return parseContentRangeTotal(contentRange) ?: C.LENGTH_UNSET.toLong()
+    val contentLength = headerValue(headers, CONTENT_LENGTH_HEADER)?.trim()?.toLongOrNull()
+    return contentLength?.takeIf { it > 0 } ?: openedLength
+}
 
 internal fun parseContentRangeTotal(value: String?): Long? {
     val trimmed = value?.trim() ?: return null
@@ -313,6 +282,7 @@ internal fun parseContentRangeTotal(value: String?): Long? {
 }
 
 internal const val CONTENT_RANGE_HEADER = "Content-Range"
+internal const val CONTENT_LENGTH_HEADER = "Content-Length"
 internal const val ACCEPT_RANGES_HEADER = "Accept-Ranges"
 
 internal fun isRangeUnsupported(headers: Map<String, List<String>>): Boolean =

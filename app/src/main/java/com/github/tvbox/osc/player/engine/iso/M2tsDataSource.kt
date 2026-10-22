@@ -31,7 +31,7 @@ class M2tsDataSource internal constructor(
         dataUri = dataSpec.uri
         val target = targetProvider(dataSpec.uri)
         targetValue = target
-        val logicalLength = m2tsLogicalLength(target.availableLength)
+        val logicalLength = m2tsLogicalLength(target.segmentLength)
         val length = m2tsReadLength(dataSpec.position, dataSpec.length, logicalLength)
         if (dataSpec.position > 0) LOG.i("echo-iso-seek:${dataSpec.position}:${length}")
         closeGuard.activate()
@@ -39,7 +39,7 @@ class M2tsDataSource internal constructor(
             transferStarted(dataSpec)
             return 0
         }
-        val span = m2tsSpan(dataSpec.position, length)
+        val span = m2tsSpan(dataSpec.position, M2TS_MAX_READ)
         val source = upstreamFactory.createDataSource()
         val upstreamSpec = dataSpec.buildUpon()
             .setPosition(span.offset)
@@ -53,9 +53,11 @@ class M2tsDataSource internal constructor(
         }
         upstream = source
         stream = M2tsStream(
-            source,
+            upstreamFactory,
+            dataSpec,
             dataSpec.position,
             length,
+            source,
             if (opened == C.LENGTH_UNSET.toLong()) span.length else minOf(opened, span.length),
         )
         transferStarted(dataSpec)
@@ -71,11 +73,11 @@ class M2tsDataSource internal constructor(
 
     override fun close() {
         closeGuard.close {
-            val source = upstream
+            val active = stream
             upstream = null
             stream = null
             try {
-                source?.close()
+                active?.close()
             } finally {
                 transferEnded()
             }
@@ -95,6 +97,7 @@ class M2tsDataSource internal constructor(
 internal const val M2TS_TS_SIZE = 188
 internal const val M2TS_PACKET_SIZE = 192
 internal const val M2TS_ATS_SIZE = 4
+internal const val M2TS_MAX_READ = 8L * 1024L * 1024L
 
 internal data class M2tsSpan(val offset: Long, val length: Long)
 
@@ -121,25 +124,43 @@ internal fun m2tsReadLength(position: Long, requestedLength: Long, m2tsLength: L
 }
 
 internal class M2tsStream(
-    private val upstream: DataSource,
+    private val factory: DataSource.Factory?,
+    private val baseSpec: DataSpec?,
     start: Long,
     private var bytesRemaining: Long,
+    private var upstream: DataSource,
     private var upstreamRemaining: Long,
 ) {
+    internal constructor(
+        upstream: DataSource,
+        start: Long,
+        bytesRemaining: Long,
+        upstreamRemaining: Long,
+    ) : this(null, null, start, bytesRemaining, upstream, upstreamRemaining)
+
     private var position = start
     private var skipRemaining = 0
+    private var recoveries = 0
     private val skipBuffer = ByteArray(M2TS_ATS_SIZE)
     private val truncatedLogged = AtomicBoolean(false)
 
     fun position(): Long = position
 
+    fun close() {
+        runCatching { upstream.close() }
+    }
+
     fun read(buffer: ByteArray, offset: Int, length: Int): Int {
         if (bytesRemaining <= 0L) return C.RESULT_END_OF_INPUT
         if (length == 0) return 0
-        if (!skipAts()) {
-            if (upstreamRemaining > 0L) reportTruncated()
+        if (upstreamRemaining <= 0L && !refill()) {
             bytesRemaining = 0
             return C.RESULT_END_OF_INPUT
+        }
+        if (!skipAts()) {
+            if (recover()) return read(buffer, offset, length)
+            reportTruncated()
+            throw IOException("upstream truncated at $position")
         }
         val inBlock = (position % M2TS_TS_SIZE).toInt()
         val max = minOf(length.toLong(), bytesRemaining, (M2TS_TS_SIZE - inBlock).toLong(), upstreamRemaining)
@@ -147,12 +168,18 @@ internal class M2tsStream(
             bytesRemaining = 0
             return C.RESULT_END_OF_INPUT
         }
-        val read = upstream.read(buffer, offset, max.toInt())
-        if (read <= 0) {
-            reportTruncated()
-            bytesRemaining = 0
-            return C.RESULT_END_OF_INPUT
+        val read = try {
+            upstream.read(buffer, offset, max.toInt())
+        } catch (e: IOException) {
+            if (recover()) return read(buffer, offset, length)
+            throw e
         }
+        if (read <= 0) {
+            if (recover()) return read(buffer, offset, length)
+            reportTruncated()
+            throw IOException("upstream truncated at $position")
+        }
+        recoveries = 0
         upstreamRemaining -= read
         position += read
         bytesRemaining -= read
@@ -171,13 +198,55 @@ internal class M2tsStream(
 
     private fun skipAts(): Boolean {
         while (skipRemaining > 0) {
+            if (upstreamRemaining <= 0L && !refill()) return false
             val want = minOf(skipRemaining.toLong(), upstreamRemaining).toInt()
             if (want <= 0) return false
-            val read = upstream.read(skipBuffer, 0, want)
+            val read = try {
+                upstream.read(skipBuffer, 0, want)
+            } catch (e: IOException) {
+                return false
+            }
             if (read <= 0) return false
             skipRemaining -= read
             upstreamRemaining -= read
         }
         return true
+    }
+
+    private fun recover(): Boolean {
+        if (factory == null || baseSpec == null) return false
+        if (recoveries >= MAX_RECOVERIES) return false
+        recoveries++
+        val ok = runCatching { refill() }.getOrDefault(false)
+        LOG.i("echo-iso-recover:$position:$recoveries:$ok")
+        return ok
+    }
+
+    private fun refill(): Boolean {
+        val source = factory ?: return false
+        val template = baseSpec ?: return false
+        val logical = minOf(bytesRemaining, M2TS_MAX_READ)
+        if (logical <= 0L) return false
+        val span = m2tsSpan(position, logical)
+        upstream.close()
+        val next = source.createDataSource()
+        val spec = template.buildUpon()
+            .setPosition(span.offset)
+            .setLength(span.length)
+            .build()
+        val opened = try {
+            next.open(spec)
+        } catch (e: IOException) {
+            runCatching { next.close() }
+            throw e
+        }
+        upstream = next
+        upstreamRemaining = if (opened == C.LENGTH_UNSET.toLong()) span.length else minOf(opened, span.length)
+        skipRemaining = 0
+        return upstreamRemaining > 0L
+    }
+
+    private companion object {
+        const val MAX_RECOVERIES = 4
     }
 }

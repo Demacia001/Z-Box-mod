@@ -1,5 +1,6 @@
 package com.github.tvbox.osc.player.engine.iso
 
+import androidx.media3.common.C
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNull
@@ -44,13 +45,39 @@ class IsoProbeLengthTest {
     @Test
     fun probeTotalLength_fallsBackToOpenedLength() {
         assertEquals(1024L, probeTotalLength(emptyMap(), 1024))
-        assertEquals(1024L, probeTotalLength(mapOf(CONTENT_RANGE_HEADER to listOf("bytes 0-1023/*")), 1024))
+    }
+
+    @Test
+    fun probeTotalLength_rejectsUnusableContentRange() {
+        val headers = mapOf(CONTENT_RANGE_HEADER to listOf("bytes 0-1023/*"))
+        assertEquals(C.LENGTH_UNSET.toLong(), probeTotalLength(headers, 1024))
     }
 
     @Test
     fun probeTotalLength_matchesHeaderCaseInsensitively() {
         val headers = mapOf("content-range" to listOf("bytes 0-1023/2048"))
         assertEquals(2048L, probeTotalLength(headers, 1024))
+    }
+
+    @Test
+    fun probeTotalLength_usesContentLengthWhenRangeIgnored() {
+        val headers = mapOf(CONTENT_LENGTH_HEADER to listOf("45098467328"))
+        assertEquals(45_098_467_328L, probeTotalLength(headers, 4096))
+    }
+
+    @Test
+    fun probeTotalLength_prefersContentRangeOverContentLength() {
+        val headers = mapOf(
+            CONTENT_RANGE_HEADER to listOf("bytes 0-4095/45098467328"),
+            CONTENT_LENGTH_HEADER to listOf("4096"),
+        )
+        assertEquals(45_098_467_328L, probeTotalLength(headers, 4096))
+    }
+
+    @Test
+    fun probeTotalLength_ignoresUnusableContentLength() {
+        assertEquals(4096L, probeTotalLength(mapOf(CONTENT_LENGTH_HEADER to listOf("0")), 4096))
+        assertEquals(4096L, probeTotalLength(mapOf(CONTENT_LENGTH_HEADER to listOf("abc")), 4096))
     }
 
     @Test
