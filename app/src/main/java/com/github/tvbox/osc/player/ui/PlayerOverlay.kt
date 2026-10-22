@@ -35,6 +35,7 @@ import androidx.compose.ui.unit.dp
 import com.github.tvbox.osc.R
 import com.github.tvbox.osc.player.state.PlayerActions
 import com.github.tvbox.osc.player.state.PlayerUiState
+import com.github.tvbox.osc.util.LOG
 import kotlin.math.roundToInt
 import kotlinx.coroutines.delay
 
@@ -149,7 +150,8 @@ fun PlayerOverlay(
     }
     LaunchedEffect(Unit) {
         while (true) {
-            actions.refreshSystemInfo()
+            runCatching { actions.refreshSystemInfo() }
+                .onFailure { LOG.e("echo-osd-refresh-failed: $it") }
             delay(1000)
         }
     }

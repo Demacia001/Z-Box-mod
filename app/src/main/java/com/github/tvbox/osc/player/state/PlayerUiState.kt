@@ -55,9 +55,9 @@ class PlayerUiState {
     var lockState: LockVisibility by mutableStateOf(LockVisibility.GONE)
 
     var infoOsdVisible: Boolean by mutableStateOf(false)
-    var infoOsdLeft: List<String> by mutableStateOf(emptyList())
-    var infoOsdRight: List<String> by mutableStateOf(emptyList())
-    var infoOsdFooter: String by mutableStateOf("")
+    var infoOsdLeft: List<Pair<String, String>> by mutableStateOf(emptyList())
+    var infoOsdRight: List<Pair<String, String>> by mutableStateOf(emptyList())
+    var infoOsdFooter: Pair<String, String>? by mutableStateOf(null)
     var showParseRow: Boolean by mutableStateOf(false)
     var isPortrait: Boolean by mutableStateOf(true)
     var playerType: Int by mutableStateOf(2)

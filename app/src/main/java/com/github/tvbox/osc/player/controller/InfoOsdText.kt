@@ -1,11 +1,14 @@
 package com.github.tvbox.osc.player.controller
 
 import android.app.Activity
+import android.app.ActivityManager
 import android.content.Context
 import android.net.ConnectivityManager
 import android.net.NetworkCapabilities
 import android.os.BatteryManager
 import android.os.Build
+import android.os.Process
+import android.os.SystemClock
 import android.webkit.WebView
 import androidx.media3.common.Format
 import androidx.media3.common.MimeTypes
@@ -22,7 +25,14 @@ import com.github.tvbox.osc.player.state.PlayerUiState
 import com.github.tvbox.osc.util.HawkConfig
 import com.github.tvbox.osc.util.KV
 import com.github.tvbox.osc.util.LOG
+import java.io.File
+import java.lang.ref.WeakReference
 import java.util.Locale
+import java.util.concurrent.Executors
+import java.util.concurrent.atomic.AtomicBoolean
+
+private const val PSS_SAMPLE_INTERVAL_MS = 3000L
+private const val ENV_CACHE_MS = 5000L
 
 internal object InfoOsdText {
 
@@ -36,37 +46,49 @@ internal object InfoOsdText {
         val view = videoView
         val exo = view?.mediaPlayer as? ExoPlayer
         val video = exo?.selectedVideoFormat
-        val left = ArrayList<String>()
-        val right = ArrayList<String>()
+        val left = ArrayList<Pair<String, String>>()
+        val right = ArrayList<Pair<String, String>>()
 
-        left.add(context.getString(R.string.osd_video) + " " + videoText(video, exo))
-        left.add(context.getString(R.string.osd_decoder) + " " + (exo?.videoDecoderName()?.takeIf { it.isNotEmpty() } ?: "-"))
-        left.add(context.getString(R.string.osd_audio) + " " + audioText(context, exo))
+        left.add(context.getString(R.string.osd_video) to videoText(video, exo))
+        left.add(context.getString(R.string.osd_decoder) to (exo?.videoDecoderName()?.takeIf { it.isNotEmpty() } ?: "-"))
+        left.add(context.getString(R.string.osd_audio) to audioText(context, exo))
 
         exo?.sampleFrameRate()
         val throughput = runCatching {
             DefaultBandwidthMeter.getSingletonInstance(context).bitrateEstimate
         }.getOrDefault(0L)
         left.add(
-            context.getString(R.string.osd_network) + " " + PlayerHelper.getDisplaySpeed(speed, true)
-                + " · " + bitrateText(throughput) + marginText(throughput, video)
+            context.getString(R.string.osd_network) to
+                (PlayerHelper.getDisplaySpeed(speed, true) + " · " + bitrateText(throughput) + marginText(throughput, video))
         )
-        left.add(context.getString(R.string.osd_playback) + " " + playbackText(context, state, exo))
-        val footer = context.getString(R.string.osd_config) + " " + configText(context, view, exo)
+        left.add(context.getString(R.string.osd_memory) to memoryText(context))
+        left.add(context.getString(R.string.osd_heap) to heapText())
+        left.add(context.getString(R.string.osd_playback) to playbackText(context, state, exo))
+        val footer = context.getString(R.string.osd_config) to configText(context, view, exo)
         left.add(
-            context.getString(R.string.osd_conclusion) + " "
-                + context.getString(if (state.playState == PlayState.ERROR) R.string.osd_abnormal else R.string.osd_normal)
+            context.getString(R.string.osd_conclusion) to
+                context.getString(if (state.playState == PlayState.ERROR) R.string.osd_abnormal else R.string.osd_normal)
         )
 
-        right.add(
-            context.getString(R.string.osd_device) + " " + Build.MODEL + " / " + Build.DEVICE + " / "
-                + (Build.SUPPORTED_ABIS.firstOrNull() ?: "-")
-        )
-        right.add(context.getString(R.string.osd_system) + " Android " + Build.VERSION.RELEASE + " / SDK " + Build.VERSION.SDK_INT)
-        right.add(context.getString(R.string.osd_chip) + " " + chipText())
-        right.add(context.getString(R.string.osd_screen) + " " + screenText(context, activity))
-        right.add("WebView " + webViewText())
-        right.add(context.getString(R.string.osd_network_env) + " " + networkEnvText(context))
+        val now = SystemClock.elapsedRealtime()
+        val cachedRight = cachedRightLines
+        val sameActivity = cachedRightActivity?.get() === activity
+        if (cachedRight != null && sameActivity && now - lastRightAt < ENV_CACHE_MS) {
+            right.addAll(cachedRight)
+        } else {
+            right.add(
+                context.getString(R.string.osd_device) to
+                    (Build.MODEL + " / " + Build.DEVICE + " / " + (Build.SUPPORTED_ABIS.firstOrNull() ?: "-"))
+            )
+            right.add(context.getString(R.string.osd_system) to ("Android " + Build.VERSION.RELEASE + " / SDK " + Build.VERSION.SDK_INT))
+            right.add(context.getString(R.string.osd_chip) to chipText())
+            right.add(context.getString(R.string.osd_screen) to screenText(context, activity))
+            right.add("WebView" to webViewText())
+            right.add(context.getString(R.string.osd_network_env) to networkEnvText(context))
+            cachedRightLines = right.toList()
+            lastRightAt = now
+            cachedRightActivity = WeakReference(activity)
+        }
 
         state.infoOsdLeft = left
         state.infoOsdRight = right
@@ -230,6 +252,65 @@ internal object InfoOsdText {
     private fun webViewText(): String {
         if (Build.VERSION.SDK_INT < 26) return "-"
         return WebView.getCurrentWebViewPackage()?.versionName ?: "-"
+    }
+
+    private val memoryExecutor by lazy {
+        Executors.newSingleThreadExecutor { runnable ->
+            Thread(runnable, "echo-osd-mem").apply { isDaemon = true }
+        }
+    }
+    private val memorySampling = AtomicBoolean(false)
+
+    @Volatile
+    private var cachedPssKb = 0L
+    private var lastPssSampleAt = 0L
+
+    private var cachedRightLines: List<Pair<String, String>>? = null
+    private var lastRightAt = 0L
+    private var cachedRightActivity: WeakReference<Activity>? = null
+
+    private fun memoryText(context: Context): String {
+        val now = SystemClock.elapsedRealtime()
+        if (now - lastPssSampleAt >= PSS_SAMPLE_INTERVAL_MS && memorySampling.compareAndSet(false, true)) {
+            lastPssSampleAt = now
+            memoryExecutor.execute {
+                try {
+                    readPssKb(context)?.let { cachedPssKb = it }
+                } finally {
+                    memorySampling.set(false)
+                }
+            }
+        }
+        val pss = cachedPssKb
+        if (pss <= 0L) return "-"
+        return String.format(Locale.US, "%.0fMB", pss / 1024f)
+    }
+
+    private fun readPssKb(context: Context): Long? = readSelfPssKb() ?: processPssKb(context)
+
+    private fun readSelfPssKb(): Long? = runCatching {
+        File("/proc/self/smaps_rollup").useLines { lines ->
+            lines.firstOrNull { it.startsWith("Pss:") }
+                ?.filter { it.isDigit() }
+                ?.toLongOrNull()
+                ?.takeIf { it > 0 }
+        }
+    }.getOrNull()
+
+    private fun processPssKb(context: Context): Long? {
+        val manager = context.getSystemService(Context.ACTIVITY_SERVICE) as? ActivityManager ?: return null
+        val pss = runCatching {
+            manager.getProcessMemoryInfo(intArrayOf(Process.myPid())).firstOrNull()?.totalPss ?: 0
+        }.getOrDefault(0)
+        return if (pss > 0) pss.toLong() else null
+    }
+
+    private fun heapText(): String {
+        val runtime = Runtime.getRuntime()
+        val max = runtime.maxMemory() / 1048576L
+        if (max <= 0) return "-"
+        val used = (runtime.totalMemory() - runtime.freeMemory()) / 1048576L
+        return used.toString() + "/" + max + "MB"
     }
 
     private fun networkEnvText(context: Context): String {
