@@ -5,6 +5,8 @@ import android.content.Intent
 import android.content.pm.ActivityInfo
 import android.content.res.Configuration
 import android.net.Uri
+import android.os.Looper
+import android.webkit.WebView
 import android.widget.Toast
 import androidx.activity.compose.setContent
 import com.github.tvbox.osc.ui.theme.enableTransparentEdgeToEdge
@@ -34,6 +36,7 @@ import com.github.tvbox.osc.util.LOG
 import com.github.tvbox.osc.util.MusicSettings
 import com.github.tvbox.osc.util.PermissionHelper
 import com.github.tvbox.osc.util.SpiderStorageNotice
+import java.util.concurrent.atomic.AtomicBoolean
 import kotlinx.coroutines.launch
 
 private const val SYSBAR_APPEARANCE_REASSERT_DELAY_MS = 400L
@@ -169,6 +172,21 @@ class DetailActivity : BaseActivity(), PageHost {
             }
         }
         return requireNotNull(playContainer) { "play container not created" }
+    }
+
+    fun preheatWebView() {
+        if (Looper.myLooper() != Looper.getMainLooper()) {
+            runOnUiThread { preheatWebView() }
+            return
+        }
+        if (!webViewPreheated.compareAndSet(false, true)) return
+        val startedAt = System.nanoTime()
+        try {
+            WebView(this).destroy()
+            LOG.i("echo-webview-prewarm: " + (System.nanoTime() - startedAt) / 1_000_000L + "ms")
+        } catch (th: Throwable) {
+            LOG.e("DetailActivity", th)
+        }
     }
 
     fun playbackFacts(): DetailPlaybackFacts = DetailPlaybackFacts(
@@ -442,5 +460,9 @@ class DetailActivity : BaseActivity(), PageHost {
         releasePlayContainer()
         vm.destroyEngine()
         super.onDestroy()
+    }
+
+    companion object {
+        private val webViewPreheated = AtomicBoolean(false)
     }
 }

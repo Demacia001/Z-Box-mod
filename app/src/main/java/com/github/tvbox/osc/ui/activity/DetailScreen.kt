@@ -29,6 +29,7 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
+import androidx.compose.runtime.withFrameNanos
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Brush
@@ -136,6 +137,14 @@ fun DetailScreen(activity: DetailActivity, vm: DetailViewModel) {
         if (pageState is DetailViewModel.PageState.Loading) {
             backdropPic = ""
             backdropSeed = null
+        }
+    }
+
+    LaunchedEffect(pageState) {
+        if (pageState is DetailViewModel.PageState.Ready) {
+            withFrameNanos { }
+            withFrameNanos { }
+            activity.preheatWebView()
         }
     }
 
