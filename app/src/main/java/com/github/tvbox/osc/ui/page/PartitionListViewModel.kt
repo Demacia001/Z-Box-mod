@@ -40,13 +40,15 @@ class PartitionListVM : ViewModel() {
     }
 
     val ui = MutableStateFlow(UiState())
+    val title = MutableStateFlow("")
+    val level = MutableStateFlow(0)
 
     var sort: MovieSort.SortData? = null
         private set
 
     private var sourceKey: String? = null
     private val scope = viewModelScope
-    private var initialized = false
+    private val nav = PartitionNavStack()
 
     val actionMessages = MutableSharedFlow<String>(
         extraBufferCapacity = 4,
@@ -67,12 +69,14 @@ class PartitionListVM : ViewModel() {
 
     private class LoaderResult(val stale: Boolean, val absXml: AbsXml?)
 
-    private val loaderScope = CoroutineScope(
-        SupervisorJob(scope.coroutineContext[Job]) + Dispatchers.Main.immediate
-    )
+    private var loader = Loader()
 
-    private val loader = object {
+    private inner class Loader {
         private val svm = SourceViewModel()
+
+        private val loaderScope = CoroutineScope(
+            SupervisorJob(scope.coroutineContext[Job]) + Dispatchers.Main.immediate
+        )
 
         @Volatile
         private var pending: ((LoaderResult) -> Unit)? = null
@@ -116,28 +120,48 @@ class PartitionListVM : ViewModel() {
     }
 
     fun refresh() {
-        if (!initialized) return
-        ui.value = UiState(State.Loading)
-        request(FIRST_PAGE)
+        if (nav.isEmpty()) return
+        reload()
     }
 
-    fun initIfNeed(sort: MovieSort.SortData) {
-        if (initialized) return
-        initialized = true
-        this.sort = sort
-        sourceKey = ApiConfig.get().getHomeSourceBean().key
+    fun open(sort: MovieSort.SortData, sourceKey: String?, title: String): Boolean {
+        if (!nav.push(PartitionNavStack.Target(sort, sourceKey, title))) return false
+        reload()
+        return true
+    }
+
+    fun back(): Boolean {
+        if (nav.pop() == null) return false
+        reload()
+        return true
+    }
+
+    fun isRoot(): Boolean = nav.isRoot()
+
+    fun setStaticTitle(title: String) {
+        if (nav.isEmpty()) this.title.value = title
+    }
+
+    private fun reload() {
+        val target = nav.current() ?: return
+        sort = target.sort
+        sourceKey = target.sourceKey ?: ApiConfig.get().getHomeSourceBean().key
+        title.value = target.title
+        level.value = level.value + 1
+        ui.value = UiState(State.Loading)
+        loader.release()
+        loader = Loader()
         request(FIRST_PAGE)
     }
 
     fun applyFilter(selection: Map<String, String>) {
-        if (!initialized) return
+        if (nav.isEmpty()) return
         sort?.filterSelect = HashMap(selection)
-        ui.value = UiState(State.Loading)
-        request(FIRST_PAGE)
+        reload()
     }
 
     fun loadMore() {
-        if (!initialized) return
+        if (nav.isEmpty()) return
         val s = ui.value
         if (s.state != State.Ready || !s.hasMore || loader.busy) return
         request(s.nextPage)

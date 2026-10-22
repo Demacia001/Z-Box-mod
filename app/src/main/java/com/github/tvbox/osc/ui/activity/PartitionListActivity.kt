@@ -5,11 +5,11 @@
 
 package com.github.tvbox.osc.ui.activity
 
-import android.app.Activity
 import android.content.Context
 import android.content.Intent
 import android.widget.Toast
 import com.github.tvbox.osc.ui.theme.enableTransparentEdgeToEdge
+import androidx.activity.OnBackPressedCallback
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -47,7 +47,7 @@ import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
-import androidx.lifecycle.viewmodel.compose.viewModel
+import androidx.lifecycle.ViewModelProvider
 import com.github.tvbox.osc.R
 import com.github.tvbox.osc.base.BaseActivity
 import com.github.tvbox.osc.ui.components.SheetHostScaffold
@@ -80,11 +80,19 @@ import com.github.tvbox.osc.ui.page.jumpToSearch
 
 class PartitionListActivity : BaseActivity() {
 
+    private val vm: PartitionListVM by lazy {
+        ViewModelProvider(this)[PartitionListVM::class.java]
+    }
+
+    private var mode by mutableStateOf(MODE_PARTITION)
+    private var entryMode by mutableStateOf(MODE_PARTITION)
+
     companion object {
         private const val EXTRA_MODE = "mode"
         private const val EXTRA_TITLE = "title"
         private const val EXTRA_SORT = "sort_json"
         private const val EXTRA_VIDEOS = "videos_json"
+        private const val EXTRA_SOURCE = "source_key"
         const val MODE_PARTITION = "partition"
         const val MODE_SEARCH = "search"
         const val MODE_FOLDER = "folder"
@@ -97,12 +105,13 @@ class PartitionListActivity : BaseActivity() {
             })
         }
 
-        fun startForFolder(context: Context, folderId: String, folderName: String) {
+        fun startForFolder(context: Context, folderId: String, folderName: String, sourceKey: String?) {
             val sort = MovieSort.SortData(folderId, folderName)
             context.startActivity(Intent(context, PartitionListActivity::class.java).apply {
                 putExtra(EXTRA_MODE, MODE_FOLDER)
                 putExtra(EXTRA_TITLE, folderName)
                 putExtra(EXTRA_SORT, Gson().toJson(sort))
+                putExtra(EXTRA_SOURCE, sourceKey)
             })
         }
 
@@ -127,34 +136,68 @@ class PartitionListActivity : BaseActivity() {
 
     override fun init() {
         enableTransparentEdgeToEdge()
+        onBackPressedDispatcher.addCallback(this, object : OnBackPressedCallback(true) {
+            override fun handleOnBackPressed() {
+                goBack()
+            }
+        })
+        entryMode = intent.getStringExtra(EXTRA_MODE) ?: MODE_PARTITION
+        mode = entryMode
+        openFromIntent(intent)
+        val searchVideosJson = intent.getStringExtra(EXTRA_VIDEOS)
         findViewById<ComposeView>(R.id.compose_view).setContent {
             AVBoxTheme {
                 SheetHostScaffold {
                     PartitionListScreen(
-                        mode = intent.getStringExtra(EXTRA_MODE) ?: MODE_PARTITION,
-                        title = intent.getStringExtra(EXTRA_TITLE) ?: "",
-                        sortJson = intent.getStringExtra(EXTRA_SORT),
-                        videosJson = intent.getStringExtra(EXTRA_VIDEOS),
+                        mode = mode,
+                        videosJson = searchVideosJson,
+                        onBack = { goBack() },
+                        vm = vm,
                     )
                 }
             }
         }
     }
+
+    private fun goBack() {
+        if (!vm.back()) {
+            finish()
+            return
+        }
+        mode = if (vm.isRoot() && entryMode != MODE_SEARCH) entryMode else MODE_FOLDER
+    }
+
+    override fun onNewIntent(intent: Intent) {
+        super.onNewIntent(intent)
+        setIntent(intent)
+        mode = intent.getStringExtra(EXTRA_MODE) ?: MODE_PARTITION
+        openFromIntent(intent)
+    }
+
+    private fun openFromIntent(intent: Intent?) {
+        val data = intent ?: return
+        if ((data.getStringExtra(EXTRA_MODE) ?: MODE_PARTITION) == MODE_SEARCH) {
+            vm.setStaticTitle(data.getStringExtra(EXTRA_TITLE) ?: "")
+            return
+        }
+        val sortJson = data.getStringExtra(EXTRA_SORT) ?: return
+        vm.open(
+            Gson().fromJson(sortJson, MovieSort.SortData::class.java),
+            data.getStringExtra(EXTRA_SOURCE),
+            data.getStringExtra(EXTRA_TITLE) ?: "",
+        )
+    }
 }
 
 @Composable
-private fun PartitionListScreen(mode: String, title: String, sortJson: String?, videosJson: String?) {
+private fun PartitionListScreen(mode: String, videosJson: String?, onBack: () -> Unit, vm: PartitionListVM) {
     val context = LocalContext.current
-    val vm: PartitionListVM = viewModel()
     var filterOpen by remember { mutableStateOf(false) }
     val ui by vm.ui.collectAsState()
+    val title by vm.title.collectAsState()
+    val level by vm.level.collectAsState()
     val vodMenu = rememberVodCardMenuState()
 
-    LaunchedEffect(sortJson) {
-        if (mode != PartitionListActivity.MODE_SEARCH && sortJson != null) {
-            vm.initIfNeed(Gson().fromJson(sortJson, MovieSort.SortData::class.java))
-        }
-    }
     LaunchedEffect(vm) {
         vm.actionMessages.collect { msg ->
             Toast.makeText(context, msg, Toast.LENGTH_SHORT).show()
@@ -180,9 +223,7 @@ private fun PartitionListScreen(mode: String, title: String, sortJson: String?, 
             )
         },
         navigationIcon = {
-            BarActionBox(R.drawable.ic_arrow_left, stringResource(R.string.common_back)) {
-                (context as? Activity)?.finish()
-            }
+            BarActionBox(R.drawable.ic_arrow_left, stringResource(R.string.common_back)) { onBack() }
         },
         actions = {
             if (mode == PartitionListActivity.MODE_PARTITION) {
@@ -236,6 +277,7 @@ private fun PartitionListScreen(mode: String, title: String, sortJson: String?, 
                 onLoadMore = { vm.loadMore() },
                 enableLoadMore = true,
                 topPadding = topPad - 20.dp,
+                resetKey = level,
             )
         }
     }
@@ -287,6 +329,7 @@ private fun VideoGrid(
     onLoadMore: () -> Unit = {},
     enableLoadMore: Boolean = false,
     topPadding: Dp = 0.dp,
+    resetKey: Any? = null,
 ) {
     BoxWithConstraints(modifier = Modifier.fillMaxSize()) {
     val gridColumns = WindowSize.gridColumns(
@@ -294,6 +337,9 @@ private fun VideoGrid(
         minColumns = 3,
     )
     val gridState = rememberLazyGridState()
+    LaunchedEffect(resetKey) {
+        if (resetKey != null) gridState.scrollToItem(0)
+    }
     LazyVerticalGrid(
         columns = GridCells.Fixed(gridColumns),
         state = gridState,

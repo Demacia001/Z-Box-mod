@@ -82,7 +82,8 @@
             android:name=".ui.activity.SearchActivity"
             android:windowSoftInputMode="stateHidden|adjustResize" />
         <activity
-            android:name=".ui.activity.PartitionListActivity" />
+            android:name=".ui.activity.PartitionListActivity"
+            android:launchMode="singleTop" />
         <activity
             android:name=".ui.activity.ThemeSettingsActivity" />
         <activity

@@ -65,5 +65,5 @@ private fun Context.openVodFolder(video: Movie.Video) {
         Toast.makeText(this, getString(R.string.toast_folder_data_missing), Toast.LENGTH_SHORT).show()
         return
     }
-    PartitionListActivity.startForFolder(this, folderId, video.name.orEmpty())
+    PartitionListActivity.startForFolder(this, folderId, video.name.orEmpty(), video.sourceKey)
 }
