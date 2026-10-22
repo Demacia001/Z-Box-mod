@@ -36,6 +36,7 @@ import com.github.tvbox.osc.player.state.PlayerUiState
 private const val OSD_BG_ALPHA = 0.82f
 private const val OSD_LABEL_ALPHA = 0.6f
 private const val OSD_VALUE_MAX_LINES = 3
+private val OSD_SAFE_INSET = 40.dp
 
 @Composable
 fun BoxScope.PlayerInfoOsd(state: PlayerUiState, actions: PlayerActions, maxWidth: Dp) {
@@ -60,7 +61,9 @@ fun BoxScope.PlayerInfoOsd(state: PlayerUiState, actions: PlayerActions, maxWidt
     val rightLabelWidth = remember(measurer, density, lineSize, baseStyle, rightLabels) {
         with(density) { labelWidthPx(rightLabels, measurer, baseStyle, lineSize).toDp() }
     }
-    val contentLimit = (maxWidth - edge - padH * 2).coerceAtLeast(0.dp)
+    val safeStart = if (landscape) OSD_SAFE_INSET else 0.dp
+    val safeTop = if (landscape) 0.dp else OSD_SAFE_INSET
+    val contentLimit = (maxWidth - edge - safeStart - padH).coerceAtLeast(0.dp)
     val groupLimit = if (landscape) {
         ((contentLimit - columnGap).coerceAtLeast(0.dp) / 2f)
     } else {
@@ -81,7 +84,7 @@ fun BoxScope.PlayerInfoOsd(state: PlayerUiState, actions: PlayerActions, maxWidt
                 RoundedCornerShape(bottomStart = corner, bottomEnd = corner),
             )
             .then(tapModifier)
-            .padding(start = padH, end = padH, top = padV, bottom = padV),
+            .padding(start = safeStart, end = padH, top = safeTop, bottom = padV),
         verticalArrangement = Arrangement.spacedBy(gap),
     ) {
         if (landscape) {

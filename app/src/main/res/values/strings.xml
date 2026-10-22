@@ -613,7 +613,7 @@
     <string name="osd_chip">芯片</string>
     <string name="osd_screen">屏幕</string>
     <string name="osd_network_env">网络环境</string>
-    <string name="osd_memory">内存</string>
+    <string name="osd_memory">PSS</string>
     <string name="osd_heap">Java 堆</string>
     <string name="osd_state_ready">就绪</string>
     <string name="osd_state_playing">播放中</string>

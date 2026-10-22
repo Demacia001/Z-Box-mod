@@ -613,7 +613,7 @@
     <string name="osd_chip">Chip</string>
     <string name="osd_screen">Screen</string>
     <string name="osd_network_env">Network env</string>
-    <string name="osd_memory">Memory</string>
+    <string name="osd_memory">PSS</string>
     <string name="osd_heap">Java heap</string>
     <string name="osd_state_ready">Ready</string>
     <string name="osd_state_playing">Playing</string>
