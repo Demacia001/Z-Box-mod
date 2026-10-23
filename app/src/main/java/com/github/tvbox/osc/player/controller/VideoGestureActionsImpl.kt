@@ -1,12 +1,16 @@
 package com.github.tvbox.osc.player.controller
 
+import android.app.Activity
 import android.content.Context
 import android.media.AudioManager
+import androidx.core.view.ViewCompat
+import androidx.core.view.WindowInsetsCompat
 import com.github.tvbox.osc.R
 import com.github.tvbox.osc.player.AppPlayerView
 import com.github.tvbox.osc.player.state.PlayState
 import com.github.tvbox.osc.player.ui.VideoGestureActions
 import com.github.tvbox.osc.player.ui.VideoGestureSession
+import com.github.tvbox.osc.player.ui.isInBottomGestureBand
 import com.github.tvbox.osc.util.GestureHelper
 import com.github.tvbox.osc.util.HawkConfig
 import com.github.tvbox.osc.util.KV
@@ -33,6 +37,8 @@ internal class VideoGestureActionsImpl(private val host: VideoPlayerController) 
 
     private val topBandFraction = 0.15f
 
+    private val bottomBandFallbackDp = 24f
+
     private var seekTargetMs = -1
 
     private var brightnessBase: Float? = null
@@ -52,9 +58,19 @@ internal class VideoGestureActionsImpl(private val host: VideoPlayerController) 
 
     override fun inPlayback(): Boolean = host.isInPlaybackState()
 
+    private fun bottomGestureBandPx(activity: Activity?): Float {
+        val density = activity?.resources?.displayMetrics?.density ?: 3f
+        val fallback = bottomBandFallbackDp * density
+        val decor = activity?.window?.decorView ?: return fallback
+        val insets = ViewCompat.getRootWindowInsets(decor) ?: return fallback
+        val system = insets.getInsets(WindowInsetsCompat.Type.systemGestures()).bottom
+        return maxOf(system.toFloat(), fallback)
+    }
+
     fun beginSession(width: Int, height: Int, screenWidth: Int, downY: Float): VideoGestureSession {
         seekTargetMs = -1
-        brightnessBase = host.playerActivity()?.window?.attributes?.screenBrightness?.let {
+        val activity = host.playerActivity()
+        brightnessBase = activity?.window?.attributes?.screenBrightness?.let {
             if (it < 0f) 0.5f else it
         }
         volumeBase = audioManager?.getStreamVolume(AudioManager.STREAM_MUSIC)
@@ -76,7 +92,7 @@ internal class VideoGestureActionsImpl(private val host: VideoPlayerController) 
             width = width,
             height = height,
             screenWidth = screenWidth,
-            edge = false,
+            edge = isInBottomGestureBand(downY, height, bottomGestureBandPx(activity)),
             fromTopBand = downY < height * topBandFraction,
         )
     }

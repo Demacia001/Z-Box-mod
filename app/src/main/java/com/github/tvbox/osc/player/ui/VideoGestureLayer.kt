@@ -311,3 +311,6 @@ private const val CANCEL_QUIET_MS = 50L
 
 internal fun isInEdgeBand(x: Float, y: Float, width: Int, height: Int, bandPx: Float): Boolean =
     x < bandPx || y < bandPx || x > width - bandPx || y > height - bandPx
+
+internal fun isInBottomGestureBand(downY: Float, height: Int, bandPx: Float): Boolean =
+    height > 0 && bandPx > 0f && downY >= height - bandPx
