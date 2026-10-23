@@ -258,6 +258,7 @@
     <string name="following_no_schedule">No update day set</string>
     <string name="following_update_days">Every %1$s</string>
     <string name="following_update_time">Updates at %1$s</string>
+    <string name="following_update_today_time">Updates today at %1$s</string>
     <string name="following_not_watched">Not watched yet</string>
     <string name="following_watched">Already watched</string>
     <string name="following_delete_selected_message">Remove %1$d selected shows from following?</string>

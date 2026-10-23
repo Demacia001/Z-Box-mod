@@ -77,6 +77,8 @@ internal fun FollowRow(
     watched: Boolean,
     editMode: Boolean,
     selected: Boolean,
+    selectedDay: Int?,
+    today: Int,
     modifier: Modifier = Modifier,
     onClick: () -> Unit,
     onLongClick: () -> Unit,
@@ -92,6 +94,17 @@ internal fun FollowRow(
             days,
             stringResource(R.string.follow_days_separator),
         )
+    }
+    val hourText = formatReminderTime(follow.updateHour)
+    val scopedDay = selectedDay?.takeIf { it in days }
+    val scheduleText = when {
+        days.isEmpty() -> stringResource(R.string.following_no_schedule)
+        scopedDay == today -> stringResource(R.string.following_update_today_time, hourText)
+        scopedDay != null -> stringResource(
+            R.string.following_update_time,
+            stringResource(WeekdayRes[scopedDay]) + " " + hourText,
+        )
+        else -> stringResource(R.string.following_update_days, daysText)
     }
     Surface(
         modifier = modifier.fillMaxWidth(),
@@ -176,25 +189,18 @@ internal fun FollowRow(
                     )
                     Spacer(modifier = Modifier.width(6.dp))
                     Text(
-                        text = if (days.isEmpty()) {
-                            stringResource(R.string.following_no_schedule)
-                        } else {
-                            stringResource(R.string.following_update_days, daysText)
-                        },
+                        text = scheduleText,
                         style = MaterialTheme.typography.bodyMedium,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                         maxLines = 1,
                         overflow = TextOverflow.Ellipsis,
                     )
                 }
-                if (days.isNotEmpty()) {
+                if (days.isNotEmpty() && scopedDay == null) {
                     Row(verticalAlignment = Alignment.CenterVertically) {
                         Spacer(modifier = Modifier.width(ScheduleTextIndent))
                         Text(
-                            text = stringResource(
-                                R.string.following_update_time,
-                                formatReminderTime(follow.updateHour),
-                            ),
+                            text = stringResource(R.string.following_update_time, hourText),
                             style = MaterialTheme.typography.bodyMedium,
                             color = MaterialTheme.colorScheme.onSurfaceVariant,
                             maxLines = 1,

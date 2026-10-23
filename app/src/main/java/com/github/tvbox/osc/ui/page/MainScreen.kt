@@ -337,35 +337,14 @@ private fun MainContent() {
             if (liquidGlassEnabled) {
                 val homeHorizontal = HomeSettings.layoutFlow.collectAsStateWithLifecycle().value ==
                     HomeSettings.HomeLayout.Horizontal
-                if (!homeHorizontal) {
+                if (navAxis == NavAxis.Horizontal && !homeHorizontal) {
                     val scrimColor = MaterialTheme.colorScheme.surfaceContainer.copy(alpha = 0.9f)
-                    val (scrimStart, scrimEnd) = if (NavMetrics.scrimOpaqueAtStart(navAxis)) {
-                        scrimColor to Color.Transparent
-                    } else {
-                        Color.Transparent to scrimColor
-                    }
                     Box(
                         modifier = Modifier
-                            .then(
-                                if (navAxis == NavAxis.Horizontal) {
-                                    Modifier
-                                        .fillMaxWidth()
-                                        .height(navBandExtent)
-                                        .align(Alignment.BottomCenter)
-                                } else {
-                                    Modifier
-                                        .fillMaxHeight()
-                                        .width(navBandExtent)
-                                        .align(Alignment.CenterStart)
-                                }
-                            )
-                            .background(
-                                if (navAxis == NavAxis.Horizontal) {
-                                    Brush.verticalGradient(0f to scrimStart, 1f to scrimEnd)
-                                } else {
-                                    Brush.horizontalGradient(0f to scrimStart, 1f to scrimEnd)
-                                }
-                            ),
+                            .fillMaxWidth()
+                            .height(navBandExtent)
+                            .align(Alignment.BottomCenter)
+                            .background(Brush.verticalGradient(0f to Color.Transparent, 1f to scrimColor)),
                     )
                 }
                 Box(

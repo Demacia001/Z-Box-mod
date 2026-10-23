@@ -2,7 +2,6 @@ package com.github.tvbox.osc.ui.navbar
 
 import com.github.tvbox.osc.ui.WindowWidthClass
 import org.junit.Assert.assertEquals
-import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
@@ -41,12 +40,6 @@ class NavMetricsTest {
     @Test
     fun reserveDp_surfaceRailFitsItsOwnBar() {
         assertTrue(NavMetrics.SURFACE_RAIL_WIDTH_DP >= NavMetrics.BAR_CROSS_DP)
-    }
-
-    @Test
-    fun scrimOpaqueAtStart_followsTheScreenEdge() {
-        assertFalse(NavMetrics.scrimOpaqueAtStart(NavAxis.Horizontal))
-        assertTrue(NavMetrics.scrimOpaqueAtStart(NavAxis.Vertical))
     }
 
     @Test

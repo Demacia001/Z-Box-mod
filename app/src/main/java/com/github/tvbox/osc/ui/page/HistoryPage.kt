@@ -14,13 +14,15 @@ import androidx.compose.animation.togetherWith
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
-import androidx.compose.foundation.lazy.LazyColumn
-import androidx.compose.foundation.lazy.LazyListState
-import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.grid.GridCells
+import androidx.compose.foundation.lazy.grid.LazyGridState
+import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
+import androidx.compose.foundation.lazy.grid.items
 import androidx.compose.material3.ContainedLoadingIndicator
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
@@ -39,6 +41,7 @@ import com.github.tvbox.osc.R
 import com.github.tvbox.osc.bean.VodInfo
 import com.github.tvbox.osc.data.EpisodeTotals
 import com.github.tvbox.osc.data.PlaybackProgress
+import com.github.tvbox.osc.ui.WindowSize
 import com.github.tvbox.osc.ui.components.LoadState
 import com.github.tvbox.osc.ui.components.LoadStateBox
 import kotlinx.coroutines.delay
@@ -53,7 +56,7 @@ private data class HistoryContent(
 @Composable
 internal fun HistoryTab(
     vm: HistoryViewModel,
-    listState: LazyListState,
+    listState: LazyGridState,
     editMode: Boolean,
     selected: Set<String>,
     onToggleSelected: (String) -> Unit,
@@ -112,50 +115,55 @@ internal fun HistoryTab(
                         .padding(bottom = navBottom),
                 )
             } else {
-                LazyColumn(
-                    state = listState,
-                    modifier = Modifier.fillMaxSize(),
-                    contentPadding = PaddingValues(
-                        start = 16.dp + navStart,
-                        end = 16.dp,
-                        top = 12.dp,
-                        bottom = 8.dp + navBottom,
-                    ),
-                    verticalArrangement = Arrangement.spacedBy(12.dp),
-                ) {
-                    items(content.items, key = { HistoryViewModel.key(it) }) { item ->
-                        val itemKey = HistoryViewModel.key(item)
-                        HistoryRow(
-                            item = item,
-                            totalEpisodes = content.episodeTotals[
-                                EpisodeTotals.key(item.sourceKey, item.id),
-                            ],
-                            playedPercent = content.playedPercents[
-                                PlaybackProgress.key(item.sourceKey, item.id),
-                            ],
-                            nowMs = nowMsState,
-                            editMode = editMode,
-                            selected = itemKey in selected,
-                            modifier = Modifier.animateItem(
-                                fadeInSpec = spring(stiffness = Spring.StiffnessMediumLow),
-                                placementSpec = if (placementAnim) {
-                                    spring(stiffness = Spring.StiffnessMediumLow)
-                                } else {
-                                    null
+                BoxWithConstraints(modifier = Modifier.fillMaxSize()) {
+                    val columns = WindowSize.rowColumns((maxWidth - 32.dp - navStart).value.toInt(), 3)
+                    LazyVerticalGrid(
+                        state = listState,
+                        columns = GridCells.Fixed(columns),
+                        modifier = Modifier.fillMaxSize(),
+                        contentPadding = PaddingValues(
+                            start = 16.dp + navStart,
+                            end = 16.dp,
+                            top = 12.dp,
+                            bottom = 8.dp + navBottom,
+                        ),
+                        horizontalArrangement = Arrangement.spacedBy(12.dp),
+                        verticalArrangement = Arrangement.spacedBy(12.dp),
+                    ) {
+                        items(content.items, key = { HistoryViewModel.key(it) }) { item ->
+                            val itemKey = HistoryViewModel.key(item)
+                            HistoryRow(
+                                item = item,
+                                totalEpisodes = content.episodeTotals[
+                                    EpisodeTotals.key(item.sourceKey, item.id),
+                                ],
+                                playedPercent = content.playedPercents[
+                                    PlaybackProgress.key(item.sourceKey, item.id),
+                                ],
+                                nowMs = nowMsState,
+                                editMode = editMode,
+                                selected = itemKey in selected,
+                                modifier = Modifier.animateItem(
+                                    fadeInSpec = spring(stiffness = Spring.StiffnessMediumLow),
+                                    placementSpec = if (placementAnim) {
+                                        spring(stiffness = Spring.StiffnessMediumLow)
+                                    } else {
+                                        null
+                                    },
+                                    fadeOutSpec = spring(stiffness = Spring.StiffnessMediumLow),
+                                ),
+                                onClick = {
+                                    if (editMode) {
+                                        onToggleSelected(itemKey)
+                                    } else {
+                                        context.jumpToDetail(item.id, item.sourceKey, item.name, item.pic)
+                                    }
                                 },
-                                fadeOutSpec = spring(stiffness = Spring.StiffnessMediumLow),
-                            ),
-                            onClick = {
-                                if (editMode) {
-                                    onToggleSelected(itemKey)
-                                } else {
-                                    context.jumpToDetail(item.id, item.sourceKey, item.name, item.pic)
-                                }
-                            },
-                            onLongClick = {
-                                if (editMode) onToggleSelected(itemKey) else onRequestDelete(item)
-                            },
-                        )
+                                onLongClick = {
+                                    if (editMode) onToggleSelected(itemKey) else onRequestDelete(item)
+                                },
+                            )
+                        }
                     }
                 }
             }

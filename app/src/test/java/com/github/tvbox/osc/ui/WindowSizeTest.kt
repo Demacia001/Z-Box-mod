@@ -81,4 +81,36 @@ class WindowSizeTest {
             }
         }
     }
+
+    @Test
+    fun rowColumns_followsAvailableWidthUpToCap() {
+        assertEquals(1, WindowSize.rowColumns(303, 3))
+        assertEquals(2, WindowSize.rowColumns(492, 3))
+        assertEquals(3, WindowSize.rowColumns(738, 3))
+        assertEquals(3, WindowSize.rowColumns(2000, 3))
+    }
+
+    @Test
+    fun rowColumns_neverLeavesTheCardBelowTargetWidth() {
+        fun cardWidth(availableWidthDp: Int, columns: Int): Int =
+            (availableWidthDp - (columns - 1) * WindowSize.GRID_COLUMN_SPACING_DP) / columns
+
+        for (available in listOf(180, 240, 320, 492, 612, 738, 1084)) {
+            val columns = WindowSize.rowColumns(available, 3)
+            val card = cardWidth(available, columns)
+            if (available >= WindowSize.TARGET_ROW_CARD_WIDTH_DP) {
+                assertTrue("可用 ${available}dp / ${columns}列 的卡宽 $card 低于目标", card >= WindowSize.TARGET_ROW_CARD_WIDTH_DP)
+            }
+        }
+    }
+
+    @Test
+    fun rowColumns_isNonNegativeAndNeverAboveCap() {
+        for (width in listOf(-100, 0, 1, 50, 200, 1000, 4000)) {
+            for (cap in 1..3) {
+                val columns = WindowSize.rowColumns(width, cap)
+                assertTrue(columns in 1..cap)
+            }
+        }
+    }
 }

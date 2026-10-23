@@ -258,6 +258,7 @@
     <string name="following_no_schedule">未设置更新日</string>
     <string name="following_update_days">每%1$s</string>
     <string name="following_update_time">%1$s 更新</string>
+    <string name="following_update_today_time">今天 %1$s 更新</string>
     <string name="following_not_watched">还没有看</string>
     <string name="following_watched">已经看了</string>
     <string name="following_delete_selected_message">确定删除选中的 %1$d 部追剧吗？</string>

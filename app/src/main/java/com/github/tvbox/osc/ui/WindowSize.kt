@@ -26,6 +26,8 @@ object WindowSize {
 
     const val TARGET_CARD_WIDTH_DP = 130
 
+    const val TARGET_ROW_CARD_WIDTH_DP = 200
+
     const val GRID_COLUMN_SPACING_DP = 12
 
     @JvmStatic
@@ -33,6 +35,13 @@ object WindowSize {
         if (availableWidthDp <= 0) return minColumns
         val perColumn = TARGET_CARD_WIDTH_DP + GRID_COLUMN_SPACING_DP
         return ((availableWidthDp + GRID_COLUMN_SPACING_DP) / perColumn).coerceAtLeast(minColumns)
+    }
+
+    @JvmStatic
+    fun rowColumns(availableWidthDp: Int, maxColumns: Int): Int {
+        if (availableWidthDp <= 0) return 1
+        val perColumn = TARGET_ROW_CARD_WIDTH_DP + GRID_COLUMN_SPACING_DP
+        return ((availableWidthDp + GRID_COLUMN_SPACING_DP) / perColumn).coerceIn(1, maxColumns)
     }
 }
 

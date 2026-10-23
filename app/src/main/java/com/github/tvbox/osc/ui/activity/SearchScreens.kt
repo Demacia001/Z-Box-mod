@@ -10,6 +10,7 @@ import androidx.compose.foundation.clickable
 import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
@@ -25,7 +26,6 @@ import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyListState
 import androidx.compose.foundation.lazy.items
-import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.foundation.text.KeyboardActions
@@ -72,6 +72,7 @@ import com.github.tvbox.osc.ui.components.PressableCard
 import com.github.tvbox.osc.ui.components.VodPoster
 import com.github.tvbox.osc.ui.components.clearFocusOnDrag
 import com.github.tvbox.osc.ui.components.glassSurface
+import com.github.tvbox.osc.ui.WindowSize
 import com.github.tvbox.osc.ui.theme.ContinuousMenuContainer
 import com.github.tvbox.osc.ui.theme.ContinuousMenuItem
 import com.github.tvbox.osc.ui.theme.cardContainer
@@ -279,42 +280,61 @@ internal fun RailResults(
             modifier = Modifier.padding(top = topPad + 8.dp, bottom = 12.dp),
             color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.4f),
         )
-        LazyColumn(
-            state = listState,
+        BoxWithConstraints(
             modifier = Modifier
                 .weight(1f)
                 .clearFocusOnDrag(focusManager),
-            contentPadding = PaddingValues(start = 10.dp, end = 12.dp, top = topPad + 8.dp, bottom = 12.dp),
-            verticalArrangement = Arrangement.spacedBy(10.dp),
         ) {
-            if (running) {
-                item(key = "rail_progress") {
-                    LinearWavyProgressIndicator(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .padding(vertical = 8.dp),
-                    )
+            val columns = WindowSize.rowColumns((maxWidth - 22.dp).value.toInt(), 3)
+            val pageRows = remember(rows, columns) { rows.chunked(columns) }
+            LazyColumn(
+                state = listState,
+                modifier = Modifier.fillMaxSize(),
+                contentPadding = PaddingValues(start = 10.dp, end = 12.dp, top = topPad + 8.dp, bottom = 12.dp),
+                verticalArrangement = Arrangement.spacedBy(10.dp),
+            ) {
+                if (running) {
+                    item(key = "rail_progress") {
+                        LinearWavyProgressIndicator(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(vertical = 8.dp),
+                        )
+                    }
                 }
-            }
-            itemsIndexed(rows, key = { index, (_, video) -> "rail_row_${index}_${video.sourceKey}_${video.id}" }) { _, (siteName, video) ->
-                SearchResultRow(
-                    video = video,
-                    siteName = siteName.takeIf { selectedSource == null },
-                    onClick = { onCardClick(video) },
-                    onLongClick = { onCardLongClick(video) },
-                )
-            }
-            if (rows.isEmpty() && !running) {
-                item(key = "rail_empty") {
-                    Text(
-                        text = stringResource(R.string.search_site_empty),
-                        style = MaterialTheme.typography.bodyMedium,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        textAlign = TextAlign.Center,
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .padding(vertical = 32.dp),
-                    )
+                items(
+                    pageRows,
+                    key = { chunk ->
+                        chunk.joinToString("|") { "${it.second.sourceKey.orEmpty()}:${it.second.id.orEmpty()}" }
+                    },
+                ) { chunk ->
+                    Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                        chunk.forEach { (siteName, video) ->
+                            SearchResultRow(
+                                video = video,
+                                siteName = siteName.takeIf { selectedSource == null },
+                                onClick = { onCardClick(video) },
+                                onLongClick = { onCardLongClick(video) },
+                                modifier = Modifier.weight(1f),
+                            )
+                        }
+                        repeat(columns - chunk.size) {
+                            Spacer(modifier = Modifier.weight(1f))
+                        }
+                    }
+                }
+                if (rows.isEmpty() && !running) {
+                    item(key = "rail_empty") {
+                        Text(
+                            text = stringResource(R.string.search_site_empty),
+                            style = MaterialTheme.typography.bodyMedium,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            textAlign = TextAlign.Center,
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(vertical = 32.dp),
+                        )
+                    }
                 }
             }
         }
@@ -446,12 +466,13 @@ internal fun SearchResultRow(
     siteName: String?,
     onClick: () -> Unit,
     onLongClick: () -> Unit,
+    modifier: Modifier = Modifier,
 ) {
     PressableCard(
         onClick = onClick,
         onLongClick = onLongClick,
         shape = RoundedCornerShape(16.dp),
-        modifier = Modifier.fillMaxWidth(),
+        modifier = modifier.fillMaxWidth(),
     ) {
         Row(
             modifier = Modifier

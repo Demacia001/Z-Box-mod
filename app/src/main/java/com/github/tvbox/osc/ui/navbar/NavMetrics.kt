@@ -33,6 +33,4 @@ object NavMetrics {
         glassEnabled -> FLOATING_OVERLAY_DP
         else -> 0
     }
-
-    fun scrimOpaqueAtStart(axis: NavAxis): Boolean = axis == NavAxis.Vertical
 }
