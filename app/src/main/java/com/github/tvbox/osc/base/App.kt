@@ -94,7 +94,7 @@ class App : Application() {
         if (existingSubs.isEmpty()) {
             val defaultSubs = arrayListOf("Z-Box\thttp://u3v.cn/644532")
             KV.put(HawkConfig.SUBSCRIBE_LIST, defaultSubs)
-            LOG.i("Z-Box", "内置默认订阅已添加")
+            LOG.i("Z-Box: 内置默认订阅已添加")
         }
 
         bootMark("onCreateDone")
