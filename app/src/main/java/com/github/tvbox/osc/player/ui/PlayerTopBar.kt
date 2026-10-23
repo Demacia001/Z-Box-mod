@@ -4,7 +4,6 @@ import android.content.res.Configuration
 import androidx.annotation.DrawableRes
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
-import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -15,6 +14,7 @@ import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.displayCutout
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.safeDrawing
 import androidx.compose.foundation.layout.size
@@ -28,7 +28,6 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.onGloballyPositioned
 import androidx.compose.ui.layout.positionInWindow
 import androidx.compose.ui.platform.LocalConfiguration
@@ -50,7 +49,7 @@ private val PreviewTopPadding = 4.dp
 
 private val FullscreenTopPadding = 12.dp
 
-private val TopBarSysInfoHeight = 16.dp
+private val TopBarSysInfoMinHeight = 16.dp
 
 private val TopBarBatteryIconSize = 16.dp
 
@@ -58,19 +57,17 @@ internal val TopBarActionSize = 42.dp
 
 internal val TopBarActionIconSize = 28.dp
 
-private val TopBarActionSpacing = 6.dp
-
 @Composable
 internal fun PlayerActionIcons(
     actions: PlayerActions,
     modifier: Modifier = Modifier,
-    size: Dp = TopBarActionSize,
-    iconSize: Dp = TopBarActionIconSize,
+    size: Dp = playerDim(R.dimen.vs_60),
+    iconSize: Dp = playerDim(R.dimen.vs_40),
     spread: Boolean = false,
 ) {
     Row(
         modifier,
-        horizontalArrangement = if (spread) Arrangement.Start else Arrangement.spacedBy(TopBarActionSpacing),
+        horizontalArrangement = if (spread) Arrangement.Start else Arrangement.spacedBy(playerDim(R.dimen.vs_8)),
         verticalAlignment = Alignment.CenterVertically,
     ) {
         PlayerActionIconButton(
@@ -153,8 +150,12 @@ fun PlayerTopBar(state: PlayerUiState, actions: PlayerActions) {
     val rightVisible = state.topRightVisible && !state.previewMode
     val edge = playerEdgePadding()
     val topPad = if (state.previewMode) PreviewTopPadding else FullscreenTopPadding
+    val batteryIconSize = if (configuration.smallestScreenWidthDp >= 600) {
+        playerDim(R.dimen.vs_24)
+    } else {
+        TopBarBatteryIconSize
+    }
     val density = LocalDensity.current
-    val sysLineHeight = with(density) { TopBarSysInfoHeight.toSp() }
     val topInset = if (LocalConfiguration.current.screenWidthDp >= 600) {
         WindowInsets.displayCutout
     } else {
@@ -204,9 +205,7 @@ fun PlayerTopBar(state: PlayerUiState, actions: PlayerActions) {
                         Box(
                             Modifier
                                 .size(TopBarLineHeight)
-                                .pointerInput(Unit) {
-                                    detectTapGestures(onTap = { actions.onBackClicked() })
-                                },
+                                .playerPressEffect(onTap = { actions.onBackClicked() }),
                             contentAlignment = Alignment.Center,
                         ) {
                             Image(
@@ -253,14 +252,13 @@ fun PlayerTopBar(state: PlayerUiState, actions: PlayerActions) {
                     Column(horizontalAlignment = Alignment.End) {
                         Row(
                             verticalAlignment = Alignment.CenterVertically,
-                            modifier = Modifier.height(TopBarSysInfoHeight),
+                            modifier = Modifier.heightIn(min = TopBarSysInfoMinHeight),
                         ) {
                             if (state.batteryPercent in 0..100) {
                                 Text(
                                     text = "${state.batteryPercent}%",
                                     color = Color.White,
                                     fontSize = playerTextSize(R.dimen.ts_18),
-                                    lineHeight = sysLineHeight,
                                     fontWeight = FontWeight.Medium,
                                     maxLines = 1,
                                 )
@@ -269,14 +267,13 @@ fun PlayerTopBar(state: PlayerUiState, actions: PlayerActions) {
                                     contentDescription = null,
                                     modifier = Modifier
                                         .padding(start = 4.dp, end = playerDim(R.dimen.vs_10))
-                                        .size(TopBarBatteryIconSize),
+                                        .size(batteryIconSize),
                                 )
                             }
                             Text(
                                 text = state.sysTime,
                                 color = Color.White,
                                 fontSize = playerTextSize(R.dimen.ts_18),
-                                lineHeight = sysLineHeight,
                                 fontWeight = FontWeight.Medium,
                                 maxLines = 1,
                             )

@@ -458,7 +458,7 @@ fun HomePage(
     if (showSourceSheet) {
         AVBoxBottomSheet(
             onDismissRequest = { showSourceSheet = false },
-            modifier = Modifier.heightIn(max = (screenHeightDp * 0.7f).dp),
+            modifier = Modifier.heightIn(max = (screenHeightDp * 0.9f).dp),
             title = stringResource(R.string.home_subscription_source),
             containerColor = MaterialTheme.colorScheme.surfaceContainer,
             isScrollable = false,
