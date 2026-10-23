@@ -16,8 +16,8 @@ android {
         applicationId = "com.github.zbox.osc"
         minSdk = libs.versions.minSdk.get().toInt()
         targetSdk = libs.versions.targetSdk.get().toInt()
-        versionCode = 300
-        versionName = "3.0.0"
+        versionCode = 600
+        versionName = "6.0.0"
         multiDexEnabled = true
         ndk {
             abiFilters += setOf("arm64-v8a")

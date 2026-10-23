@@ -242,73 +242,73 @@ fun SettingsPage(
 
             // AppInfoHeaderCard(versionName = versionName)  // Z-Box: 隐藏顶部信息卡片
 
-            SettingsGroup(title = null) {
-                SettingsCard(SettingsCardPosition.FIRST) {
-                    SettingsRow(
-                        title = stringResource(R.string.settings_config_manage),
-                        subtitle = stringResource(R.string.settings_config_manage_subtitle),
-                        iconRes = R.drawable.ic_settings_api,
-                        onClick = { ConfigManageActivity.start(context) },
-                    )
-                }
-                SettingsCard(SettingsCardPosition.MIDDLE) {
-                    SettingsRow(
-                        title = stringResource(R.string.settings_theme),
-                        subtitle = stringResource(R.string.settings_theme_subtitle),
-                        iconRes = R.drawable.ic_settings_theme,
-                        onClick = { ThemeSettingsActivity.start(context) },
-                    )
-                }
-                SettingsCard(SettingsCardPosition.MIDDLE) {
-                    SettingsRow(
-                        title = stringResource(R.string.settings_play),
-                        subtitle = stringResource(R.string.settings_play_subtitle),
-                        iconRes = R.drawable.ic_settings_play,
-                        onClick = { PlaySettingsActivity.start(context) },
-                    )
-                }
-                SettingsCard(SettingsCardPosition.LAST) {
-                    SettingsRow(
-                        title = stringResource(R.string.settings_preference_title),
-                        subtitle = stringResource(R.string.settings_preference_subtitle),
-                        iconRes = R.drawable.ic_settings_preference,
-                        onClick = { PreferenceSettingsActivity.start(context) },
-                    )
-                }
-            }
+            // SettingsGroup(title = null) {
+            // SettingsCard(SettingsCardPosition.FIRST) {
+            // SettingsRow(
+            // title = stringResource(R.string.settings_config_manage),
+            // subtitle = stringResource(R.string.settings_config_manage_subtitle),
+            // iconRes = R.drawable.ic_settings_api,
+            // onClick = { ConfigManageActivity.start(context) },
+            // )
+            // }
+            // SettingsCard(SettingsCardPosition.MIDDLE) {
+            // SettingsRow(
+            // title = stringResource(R.string.settings_theme),
+            // subtitle = stringResource(R.string.settings_theme_subtitle),
+            // iconRes = R.drawable.ic_settings_theme,
+            // onClick = { ThemeSettingsActivity.start(context) },
+            // )
+            // }
+            // SettingsCard(SettingsCardPosition.MIDDLE) {
+            // SettingsRow(
+            // title = stringResource(R.string.settings_play),
+            // subtitle = stringResource(R.string.settings_play_subtitle),
+            // iconRes = R.drawable.ic_settings_play,
+            // onClick = { PlaySettingsActivity.start(context) },
+            // )
+            // }
+            // SettingsCard(SettingsCardPosition.LAST) {
+            // SettingsRow(
+            // title = stringResource(R.string.settings_preference_title),
+            // subtitle = stringResource(R.string.settings_preference_subtitle),
+            // iconRes = R.drawable.ic_settings_preference,
+            // onClick = { PreferenceSettingsActivity.start(context) },
+            // )
+            // }
+            // }
 
             SettingsGroup(title = null) {
-                SettingsCard(SettingsCardPosition.FIRST) {
-                    SettingsOptionMenuRow(
-                        title = stringResource(R.string.settings_default_page),
-                        subtitle = stringResource(R.string.settings_default_page_subtitle),
-                        iconRes = R.drawable.ic_settings_start,
-                        valueText = stringResource(if (state.defaultLoadLive) R.string.common_live else R.string.common_vod),
-                        options = listOf(
-                            stringResource(R.string.common_vod),
-                            stringResource(R.string.common_live),
-                        ),
-                        selectedIndex = if (state.defaultLoadLive) 1 else 0,
-                        onSelect = { idx -> vm.put(HawkConfig.DEFAULT_LOAD_LIVE, idx == 1) },
-                    )
-                }
-                SettingsCard(SettingsCardPosition.MIDDLE) {
-                    SettingsOptionMenuRow(
-                        title = stringResource(R.string.settings_history_limit),
-                        subtitle = stringResource(R.string.settings_history_limit_subtitle),
-                        iconRes = R.drawable.ic_settings_history,
-                        valueText = stringResource(
-                            R.string.settings_history_limit_value,
-                            HistoryHelper.getHisNum(state.historyNumIndex),
-                        ),
-                        options = listOf(0, 1, 2).map {
-                            stringResource(R.string.settings_history_limit_value, HistoryHelper.getHisNum(it))
-                        },
-                        selectedIndex = state.historyNumIndex,
-                        onSelect = { idx -> vm.put(HawkConfig.HISTORY_NUM, idx) },
-                    )
-                }
-                SettingsCard(SettingsCardPosition.MIDDLE) {
+                // SettingsCard(SettingsCardPosition.FIRST) {
+                // SettingsOptionMenuRow(
+                // title = stringResource(R.string.settings_default_page),
+                // subtitle = stringResource(R.string.settings_default_page_subtitle),
+                // iconRes = R.drawable.ic_settings_start,
+                // valueText = stringResource(if (state.defaultLoadLive) R.string.common_live else R.string.common_vod),
+                // options = listOf(
+                // stringResource(R.string.common_vod),
+                // stringResource(R.string.common_live),
+                // ),
+                // selectedIndex = if (state.defaultLoadLive) 1 else 0,
+                // onSelect = { idx -> vm.put(HawkConfig.DEFAULT_LOAD_LIVE, idx == 1) },
+                // )
+                // }
+                // SettingsCard(SettingsCardPosition.MIDDLE) {
+                // SettingsOptionMenuRow(
+                // title = stringResource(R.string.settings_history_limit),
+                // subtitle = stringResource(R.string.settings_history_limit_subtitle),
+                // iconRes = R.drawable.ic_settings_history,
+                // valueText = stringResource(
+                // R.string.settings_history_limit_value,
+                // HistoryHelper.getHisNum(state.historyNumIndex),
+                // ),
+                // options = listOf(0, 1, 2).map {
+                // stringResource(R.string.settings_history_limit_value, HistoryHelper.getHisNum(it))
+                // },
+                // selectedIndex = state.historyNumIndex,
+                // onSelect = { idx -> vm.put(HawkConfig.HISTORY_NUM, idx) },
+                // )
+                // }
+                SettingsCard(SettingsCardPosition.SINGLE) {
                     var showClearCacheDialog by rememberSaveable { mutableStateOf(false) }
                     SettingsRow(
                         title = stringResource(R.string.settings_clear_cache),
@@ -347,21 +347,21 @@ fun SettingsPage(
                         )
                     }
                 }
-                SettingsCard(SettingsCardPosition.LAST) {
-                    SettingsOptionMenuRow(
-                        title = "DOH",
-                        subtitle = stringResource(R.string.settings_doh_subtitle),
-                        iconRes = R.drawable.ic_settings_doh,
-                        valueText = if (state.dohIndex == 0) stringResource(R.string.common_off)
-                        else OkGoHelper.dnsHttpsList.getOrNull(state.dohIndex)
-                            ?: stringResource(R.string.common_off),
-                        options = OkGoHelper.dnsHttpsList.mapIndexed { index, name ->
-                            if (index == 0) context.getString(R.string.common_off) else name
-                        },
-                        selectedIndex = state.dohIndex,
-                        onSelect = { idx -> vm.put(HawkConfig.DOH_URL, idx) },
-                    )
-                }
+                // SettingsCard(SettingsCardPosition.LAST) {
+                // SettingsOptionMenuRow(
+                // title = "DOH",
+                // subtitle = stringResource(R.string.settings_doh_subtitle),
+                // iconRes = R.drawable.ic_settings_doh,
+                // valueText = if (state.dohIndex == 0) stringResource(R.string.common_off)
+                // else OkGoHelper.dnsHttpsList.getOrNull(state.dohIndex)
+                // ?: stringResource(R.string.common_off),
+                // options = OkGoHelper.dnsHttpsList.mapIndexed { index, name ->
+                // if (index == 0) context.getString(R.string.common_off) else name
+                // },
+                // selectedIndex = state.dohIndex,
+                // onSelect = { idx -> vm.put(HawkConfig.DOH_URL, idx) },
+                // )
+                // }
             }
 
             // SettingsGroup(title = null) {

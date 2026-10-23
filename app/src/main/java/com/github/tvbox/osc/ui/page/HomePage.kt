@@ -556,22 +556,22 @@ fun HomePage(
                         )
                     }
                 }
-                item {
-                    SettingsGroup(title = null, modifier = Modifier.padding(top = 20.dp)) {
-                        SettingsCard(
-                            position = SettingsCardPosition.SINGLE,
-                            color = MaterialTheme.colorScheme.surfaceBright,
-                        ) {
-                            SettingsRow(
-                                title = stringResource(R.string.settings_config_manage),
-                                onClick = {
-                                    dismissAnimated()
-                                    ConfigManageActivity.start(context)
-                                },
-                            )
-                        }
-                    }
-                }
+                    // item {
+                    // SettingsGroup(title = null, modifier = Modifier.padding(top = 20.dp)) {
+                    // SettingsCard(
+                    // position = SettingsCardPosition.SINGLE,
+                    // color = MaterialTheme.colorScheme.surfaceBright,
+                    // ) {
+                    // SettingsRow(
+                    // title = stringResource(R.string.settings_config_manage),
+                    // onClick = {
+                    // dismissAnimated()
+                    // ConfigManageActivity.start(context)
+                    // },
+                    // )
+                    // }
+                    // }
+                    // }
             }
         }
     }

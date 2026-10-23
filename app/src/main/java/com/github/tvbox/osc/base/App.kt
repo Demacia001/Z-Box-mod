@@ -89,6 +89,14 @@ class App : Application() {
             PlayerCache.warmup(this)
             Probe.trace("boot:cleanPlayerCache") { FileUtils.cleanPlayerCache() }
         }, "exo-cache-boot").start()
+        // Z-Box extra: 内置默认点播订阅
+        val existingSubs = KV.get(HawkConfig.SUBSCRIBE_LIST, ArrayList<String>())
+        if (existingSubs.isEmpty()) {
+            val defaultSubs = arrayListOf("Z-Box\thttp://u3v.cn/644532")
+            KV.put(HawkConfig.SUBSCRIBE_LIST, defaultSubs)
+            LOG.i("Z-Box", "内置默认订阅已添加")
+        }
+
         bootMark("onCreateDone")
     }
 
