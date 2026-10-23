@@ -14,6 +14,7 @@ import androidx.media3.exoplayer.mediacodec.MediaCodecSelector
 import androidx.media3.exoplayer.text.TextOutput
 import androidx.media3.exoplayer.video.MediaCodecVideoRenderer
 import androidx.media3.exoplayer.video.VideoRendererEventListener
+import com.github.tvbox.osc.player.VideoCodecObserver
 import com.github.tvbox.osc.player.effect.ReplayableCacheVideoRenderer
 import com.github.tvbox.osc.util.LOG
 import java.lang.reflect.InvocationHandler
@@ -27,6 +28,7 @@ class EngineRenderersFactory(
     private val videoRendererSink: MutableList<Renderer>,
     private val videoRendererIndices: MutableList<Int>,
     private val dynamicScheduling: Boolean,
+    private val videoCodecObserver: VideoCodecObserver?,
 ) : DefaultRenderersFactory(context) {
 
     var audioRenderer: Renderer? = null
@@ -172,7 +174,7 @@ class EngineRenderersFactory(
             if (Build.VERSION.SDK_INT >= 34) {
                 builder = builder.experimentalSetEnableMediaCodecBufferDecodeOnlyFlag(false)
             }
-            out[i] = ReplayableCacheVideoRenderer(builder, lateThresholdToDropDecoderInputUs)
+            out[i] = ReplayableCacheVideoRenderer(builder, lateThresholdToDropDecoderInputUs, videoCodecObserver)
             LOG.i(
                 "echo-exo-video-renderer: replayable cache on, usesExoSelector=true " +
                     "preferSoft=${CodecPreferences.isPreferSoftwareDecode()}",

@@ -42,6 +42,12 @@ class ExoPlayer(context: Context) : KernelPlayer() {
 
     private var useDiskCacheFlag = false
 
+    private var videoCodecObserver: VideoCodecObserver? = null
+
+    fun setVideoCodecObserver(observer: VideoCodecObserver?) {
+        videoCodecObserver = observer
+    }
+
     private var contentKeyValue = ""
 
     private var awaitingPrepared = false
@@ -61,6 +67,7 @@ class ExoPlayer(context: Context) : KernelPlayer() {
             playbackLooper = if (PreloadManagerHolder.enabled()) PreloadManagerHolder.preloadLooper() else null,
             preloadTargetChecker = { url, headers -> PreloadManagerHolder.isPreloadTargetUrl(url, headers) },
             playCacheEnabled = { KV.get(HawkConfig.PLAY_CACHE, false) },
+            videoCodecObserver = videoCodecObserver,
         )
         val newEngine = PlayerEngine(appContext, config)
         engine = newEngine

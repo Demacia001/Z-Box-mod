@@ -2,8 +2,8 @@ package com.github.tvbox.osc.player.controller
 
 import android.os.SystemClock
 import com.github.tvbox.osc.R
-import com.github.tvbox.osc.player.PlayerCodecStats
 import com.github.tvbox.osc.player.PlayerHelper
+import com.github.tvbox.osc.player.VideoCodecInfo
 import com.github.tvbox.osc.player.effect.PictureEffects
 import com.github.tvbox.osc.player.effect.anime4k.Anime4kSettings
 import com.github.tvbox.osc.player.effect.anime4k.Anime4kTier
@@ -13,6 +13,9 @@ import com.github.tvbox.osc.player.state.PictureParamsState
 import com.github.tvbox.osc.player.state.SelectDialogState
 import com.github.tvbox.osc.util.LOG
 import com.github.tvbox.osc.util.PlayerUtils
+import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.combine
 import org.json.JSONException
 import org.json.JSONObject
 
@@ -21,11 +24,11 @@ private const val DECODE_PENDING_TIMEOUT_MS = 10000L
 
 internal class PlayerConfigDelegate(private val host: VideoPlayerController) {
 
+    private data class PendingDecode(val value: String, val at: Long, val generation: Int)
+
     private var speedRetryCount = 0
 
-    private var pendingDecode: String? = null
-    private var pendingDecodeAt = 0L
-    private var pendingDecodeGeneration = 0
+    private val pendingDecode = MutableStateFlow<PendingDecode?>(null)
 
     private val speedRetryRunnable by lazy { Runnable { applySpeedWhenReady() } }
 
@@ -72,7 +75,6 @@ internal class PlayerConfigDelegate(private val host: VideoPlayerController) {
                 selected = speedIndex(speed),
                 onSelect = { applySpeed(speedOptions[it]) },
             ),
-            decode = decodeChoice(cfg),
             player = ParamsChoice(
                 options = players.map { PlayerHelper.getPlayerName(it) },
                 selected = players.indexOf(playerType).coerceAtLeast(0),
@@ -135,7 +137,7 @@ internal class PlayerConfigDelegate(private val host: VideoPlayerController) {
         )
     }
 
-    private fun refreshParamsSheet() {
+    internal fun refreshParamsSheet() {
         if (host.state.paramsSheet == null) return
         host.state.paramsSheet = buildParamsSheet()
     }
@@ -149,29 +151,44 @@ internal class PlayerConfigDelegate(private val host: VideoPlayerController) {
         host.listener?.replay(false)
     }
 
-    private fun decodeChoice(cfg: JSONObject): ParamsChoice {
-        val configured = cfg.optString("exo", "硬解码") // i18n: keep
-        val selected = pendingDecodeIndex()
-            ?: PlayerHelper.decodeDisplayIndex(PlayerCodecStats.videoDecodeKind, configured)
-        return ParamsChoice(
-            options = listOf(
-                host.context.getString(R.string.player_decode_hard),
-                host.context.getString(R.string.player_decode_soft),
-            ),
-            selected = selected,
-            onSelect = { applyDecode(if (it == 1) "软解码" else "硬解码") }, // i18n: keep
-        )
-    }
-
-    private fun pendingDecodeIndex(): Int? {
-        val pending = pendingDecode ?: return null
-        val expired = SystemClock.elapsedRealtime() - pendingDecodeAt > DECODE_PENDING_TIMEOUT_MS
-        if (expired || PlayerCodecStats.videoCodecGeneration.get() != pendingDecodeGeneration) {
-            pendingDecode = null
-            return null
+    internal fun decodeChoiceFlow(cfg: JSONObject?): Flow<ParamsChoice> =
+        combine(pendingDecode, host.videoCodecFlow) { pending, info ->
+            buildDecodeChoice(pending, info, configuredExo(cfg))
         }
-        return if (pending == "软解码") 1 else 0 // i18n: keep
-    }
+
+    internal fun decodeChoiceNow(cfg: JSONObject?): ParamsChoice =
+        buildDecodeChoice(pendingDecode.value, host.videoCodecFlow.value, configuredExo(cfg))
+
+    private fun configuredExo(cfg: JSONObject?): String =
+        cfg?.optString("exo", "硬解码") ?: "硬解码" // i18n: keep
+
+    private fun buildDecodeChoice(
+        pending: PendingDecode?,
+        info: VideoCodecInfo,
+        configured: String,
+    ): ParamsChoice = ParamsChoice(
+        options = listOf(
+            host.context.getString(R.string.player_decode_hard),
+            host.context.getString(R.string.player_decode_soft),
+        ),
+        selected = pendingDecodeIndex(pending, info)
+            ?: PlayerHelper.decodeDisplayIndex(info.kind, configured),
+        onSelect = { applyDecode(if (it == 1) "软解码" else "硬解码") }, // i18n: keep
+    )
+
+    private fun pendingDecodeIndex(pending: PendingDecode?, info: VideoCodecInfo): Int? =
+        PlayerHelper.pendingDecodeIndex(
+            pending?.value,
+            pending?.at ?: 0L,
+            pending?.generation ?: 0,
+            SystemClock.elapsedRealtime(),
+            info.generation,
+            DECODE_PENDING_TIMEOUT_MS,
+        )
+
+    private fun decodeDisplayedIndex(cfg: JSONObject): Int =
+        pendingDecodeIndex(pendingDecode.value, host.videoCodecFlow.value)
+            ?: PlayerHelper.decodeDisplayIndex(host.videoCodecFlow.value.kind, configuredExo(cfg))
 
     fun applySpeed(value: Float) {
         host.actions.keepControlsAlive()
@@ -219,17 +236,14 @@ internal class PlayerConfigDelegate(private val host: VideoPlayerController) {
         host.actions.keepControlsAlive()
         try {
             val cfg = host.playerConfig ?: return
-            val displayed = pendingDecodeIndex()
-                ?: PlayerHelper.decodeDisplayIndex(
-                    PlayerCodecStats.videoDecodeKind,
-                    cfg.optString("exo", "硬解码"), // i18n: keep
-                )
-            if (displayed == (if (value == "软解码") 1 else 0)) return // i18n: keep
+            if (decodeDisplayedIndex(cfg) == (if (value == "软解码") 1 else 0)) return // i18n: keep
             cfg.put("exo", value) // i18n: keep
             cfg.put("exoSet", 1)
-            pendingDecode = value
-            pendingDecodeAt = SystemClock.elapsedRealtime()
-            pendingDecodeGeneration = PlayerCodecStats.videoCodecGeneration.get()
+            pendingDecode.value = PendingDecode(
+                value,
+                SystemClock.elapsedRealtime(),
+                host.videoCodecFlow.value.generation,
+            )
             host.listener?.setAllowDecodeFallback(false)
             updatePlayerCfgState()
             host.listener?.updatePlayerCfg()

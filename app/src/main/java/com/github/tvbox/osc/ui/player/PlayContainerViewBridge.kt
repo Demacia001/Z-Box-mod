@@ -13,6 +13,7 @@ import com.github.tvbox.osc.player.PreloadCoordinator
 import com.github.tvbox.osc.player.PlaybackHostApi
 import com.github.tvbox.osc.player.PlaybackViewBridge
 import com.github.tvbox.osc.player.PlayerHelper
+import com.github.tvbox.osc.player.VideoCodecInfo
 import com.github.tvbox.osc.player.host.EngineTextureRenderViewFactory
 import com.github.tvbox.osc.player.state.PlayState
 import com.github.tvbox.osc.util.LOG
@@ -269,6 +270,9 @@ class PlayContainerViewBridge(private val container: PlayContainer) : PlaybackVi
     override fun applyPlayerConfig(cfg: JSONObject) {
         container.mController?.setPlayerConfig(cfg)
     }
+
+    override fun videoCodecInfo(): VideoCodecInfo =
+        container.engine?.videoCodec?.value ?: VideoCodecInfo()
 
     override fun onLinesExhausted(): Boolean {
         val host = container.mPageHost ?: return false

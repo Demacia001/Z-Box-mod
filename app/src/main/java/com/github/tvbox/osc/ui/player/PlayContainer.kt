@@ -63,7 +63,7 @@ class PlayContainer(activity: Activity) : FrameLayout(activity), CustomAdapt, Pl
 
     lateinit var scheduler: PlaybackController
     private lateinit var surfaceSlot: FrameLayout
-    private var engine: PlaybackEngine? = null
+    internal var engine: PlaybackEngine? = null
     var mPageHost: PageHost? = null
     var mActivity: Activity? = activity
 
@@ -345,6 +345,7 @@ class PlayContainer(activity: Activity) : FrameLayout(activity), CustomAdapt, Pl
         mController.setEnableInNormal(true)
         mController.setGestureEnabled(true)
         mVideoView = engine?.player()
+        engine?.let { (mController as? VideoPlayerController)?.bindVideoCodecFlow(it.videoCodec) }
         mController.setListener(controlListener)
         if (mVideoView != null) mController.setKernelProvider(mVideoView)
     }
@@ -496,6 +497,7 @@ class PlayContainer(activity: Activity) : FrameLayout(activity), CustomAdapt, Pl
         if (scheduler != null) scheduler.stopPlaybackForPageExit()
         val revived = PlaybackService.engine(activity)
         engine = revived
+        (mController as? VideoPlayerController)?.bindVideoCodecFlow(revived.videoCodec)
         scheduler = revived.controller()
         mVideoView = revived.player()
         revived.attach(this)

@@ -163,7 +163,6 @@ class ParamsChoice(
 
 class ParamsSheetState(
     val speed: ParamsChoice,
-    val decode: ParamsChoice,
     val player: ParamsChoice,
     val scale: ParamsChoice,
     val picture: PictureParamsState,

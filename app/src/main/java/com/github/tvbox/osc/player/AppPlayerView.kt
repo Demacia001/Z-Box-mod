@@ -160,8 +160,11 @@ open class AppPlayerView @JvmOverloads constructor(
 
     protected open fun showNetWarning(): Boolean = false
 
+    internal var videoCodecObserver: VideoCodecObserver? = null
+
     protected open fun initPlayer() {
         val player = createPlayer()
+        (player as? ExoPlayer)?.setVideoCodecObserver(videoCodecObserver)
         player.setPlayerEventListener(kernelEventListener)
         mMediaPlayer = player
         setInitOptions()

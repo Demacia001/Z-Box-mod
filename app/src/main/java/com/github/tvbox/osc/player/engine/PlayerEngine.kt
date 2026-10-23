@@ -34,12 +34,12 @@ import androidx.media3.exoplayer.trackselection.DefaultTrackSelector
 import androidx.media3.exoplayer.upstream.DefaultBandwidthMeter
 import androidx.media3.exoplayer.util.EventLogger
 import androidx.media3.exoplayer.video.VideoFrameMetadataListener
-import com.github.tvbox.osc.player.PlayerCodecStats
 import com.github.tvbox.osc.player.PlayerDecodeKind
 import com.github.tvbox.osc.player.RetryPolicy
 import com.github.tvbox.osc.player.SlowOpenSignal
 import com.github.tvbox.osc.player.TrackInfo
 import com.github.tvbox.osc.player.TrackInfoBean
+import com.github.tvbox.osc.player.VideoCodecObserver
 import com.github.tvbox.osc.player.effect.PictureEffects
 import com.github.tvbox.osc.player.effect.RedrawPolicy
 import com.github.tvbox.osc.player.effect.ReplayableCacheVideoRenderer
@@ -64,6 +64,7 @@ data class PlayerEngineConfig(
     val okHttpClient: OkHttpClient? = null,
     val preloadTargetChecker: (url: String, headers: Map<String, String>?) -> Boolean = { _, _ -> false },
     val playCacheEnabled: () -> Boolean = { false },
+    val videoCodecObserver: VideoCodecObserver? = null,
 ) {
     companion object {
         const val DEFAULT_BUFFER_TIMES = 3
@@ -271,6 +272,7 @@ class PlayerEngine(
             videoRenderers,
             videoRendererIndices,
             config.dynamicScheduling,
+            config.videoCodecObserver,
         )
         factory.setEnableDecoderFallback(true)
         factory.setExtensionRendererMode(DefaultRenderersFactory.EXTENSION_RENDERER_MODE_ON)
@@ -516,7 +518,7 @@ class PlayerEngine(
         pendingOutputHeight = 0
         outputSurfacePresent = false
         speedPlaybackParameters = null
-        PlayerCodecStats.resetVideo()
+        config.videoCodecObserver?.onCodecReleased()
     }
 
     val isPlaying: Boolean
@@ -747,10 +749,10 @@ class PlayerEngine(
     }
 
     val videoDecoderName: String
-        get() = PlayerCodecStats.videoDecoderName
+        get() = config.videoCodecObserver?.codecInfo?.decoderName.orEmpty()
 
     val videoDecodeKind: PlayerDecodeKind
-        get() = PlayerCodecStats.videoDecodeKind
+        get() = config.videoCodecObserver?.codecInfo?.kind ?: PlayerDecodeKind.UNKNOWN
 
     val audioCodecChoice: AudioCodecChoice?
         get() = AudioCodecProbe.liveInfo(audioRenderersFactory?.audioRenderer)

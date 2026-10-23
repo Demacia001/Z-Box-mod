@@ -33,6 +33,7 @@ import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.TextUnit
 import androidx.compose.ui.unit.dp
 import com.github.tvbox.osc.R
+import com.github.tvbox.osc.player.state.ParamsChoice
 import com.github.tvbox.osc.player.state.PlayerActions
 import com.github.tvbox.osc.player.state.PlayerUiState
 import com.github.tvbox.osc.util.LOG
@@ -43,6 +44,7 @@ import kotlinx.coroutines.delay
 fun PlayerOverlay(
     state: PlayerUiState,
     actions: PlayerActions,
+    decodeChoice: ParamsChoice,
     gestureHandler: VideoGestureHandler,
     gestureSession: (width: Int, height: Int, screenWidth: Int, downY: Float) -> VideoGestureSession,
     onTapPending: () -> Unit,
@@ -110,6 +112,7 @@ fun PlayerOverlay(
         state.paramsSheet?.let { sheet ->
             PlayerParamsSheet(
                 sheet = sheet,
+                decodeChoice = decodeChoice,
                 tab = state.paramsTab,
                 onTabSelected = { state.paramsTab = it },
                 osdVisible = state.infoOsdVisible,

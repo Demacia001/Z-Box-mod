@@ -95,6 +95,8 @@ interface PlaybackViewBridge {
 
     fun applyPlayerConfig(cfg: JSONObject)
 
+    fun videoCodecInfo(): VideoCodecInfo
+
     fun firstUrlByArray(url: String): String
 
     fun setArtwork(url: String)

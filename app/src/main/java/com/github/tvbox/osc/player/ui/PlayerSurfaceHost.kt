@@ -6,6 +6,9 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.collectAsState
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.layout.layout
@@ -25,6 +28,12 @@ import com.github.tvbox.osc.ui.theme.AVBoxTheme
  */
 @Composable
 internal fun PlayerSurfaceHost(controller: VideoPlayerController) {
+    val cfg = controller.playerConfig
+    val codecFlow = controller.videoCodecFlow
+    val decodeFlow = remember(cfg, codecFlow) { controller.config.decodeChoiceFlow(cfg) }
+    val decodeChoice by decodeFlow.collectAsState(
+        initial = remember(cfg) { controller.config.decodeChoiceNow(cfg) },
+    )
     AVBoxTheme(manageStatusBarIcons = false) {
         Box(
             Modifier
@@ -50,6 +59,7 @@ internal fun PlayerSurfaceHost(controller: VideoPlayerController) {
             PlayerOverlay(
                 state = controller.state,
                 actions = controller.actions,
+                decodeChoice = decodeChoice,
                 gestureHandler = controller.gestureHandler,
                 gestureSession = { w, h, sw, y ->
                     controller.gestureActions.beginSession(w, h, sw, y)

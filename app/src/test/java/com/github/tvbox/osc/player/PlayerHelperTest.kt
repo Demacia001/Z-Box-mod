@@ -2,6 +2,7 @@ package com.github.tvbox.osc.player
 
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
+import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
@@ -163,5 +164,15 @@ class PlayerHelperTest {
         assertEquals(1, PlayerHelper.decodeDisplayIndex(PlayerDecodeKind.UNKNOWN, "软解码"))
         assertEquals(0, PlayerHelper.decodeDisplayIndex(PlayerDecodeKind.UNKNOWN, "硬解码"))
         assertEquals(0, PlayerHelper.decodeDisplayIndex(PlayerDecodeKind.UNKNOWN, null))
+    }
+
+    @Test
+    fun pendingDecodeIndex_livesUntilTimeoutOrCodecGenerationChanges() {
+        val now = 10_000L
+        assertEquals(1, PlayerHelper.pendingDecodeIndex("软解码", now - 1_000, 3, now, 3, 10_000) ?: -1)
+        assertEquals(0, PlayerHelper.pendingDecodeIndex("硬解码", now - 1_000, 3, now, 3, 10_000) ?: -1)
+        assertNull(PlayerHelper.pendingDecodeIndex(null, now, 3, now, 3, 10_000))
+        assertNull(PlayerHelper.pendingDecodeIndex("软解码", now - 11_000, 3, now, 3, 10_000))
+        assertNull(PlayerHelper.pendingDecodeIndex("软解码", now - 1_000, 3, now, 4, 10_000))
     }
 }

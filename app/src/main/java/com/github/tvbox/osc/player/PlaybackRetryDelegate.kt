@@ -39,6 +39,8 @@ class PlaybackRetryDelegate(private val host: Host) {
 
         fun inheritProgressFrom(key: String?, position: Long)
 
+        fun videoCodecInfo(): VideoCodecInfo
+
         fun webPlayUrl(): String?
 
         fun webHeaderMap(): HashMap<String, String>?
@@ -190,12 +192,13 @@ class PlaybackRetryDelegate(private val host: Host) {
             "软解码" -> false // i18n: keep
             else -> return false
         }
-        val currentCodec = PlayerCodecStats.videoDecoderName
+        val codecInfo = host.videoCodecInfo()
+        val currentCodec = codecInfo.decoderName
         if (toSoftware) {
             if (PlayerHelper.shouldSkipSoftDecodeFallback(
                     softwareDecodeCandidateName(),
                     currentCodec,
-                    PlayerCodecStats.videoDecodeKind,
+                    codecInfo.kind,
                 )
             ) {
                 LOG.i("echo-autoRetry skip soft decode: software target already in use ($currentCodec)")
@@ -206,11 +209,11 @@ class PlaybackRetryDelegate(private val host: Host) {
             if (PlayerHelper.shouldSkipHardDecodeFallback(
                     hardCandidate,
                     currentCodec,
-                    PlayerCodecStats.videoDecodeKind,
+                    codecInfo.kind,
                 )
             ) {
                 LOG.i(
-                    "echo-autoRetry skip hard decode: kind=${PlayerCodecStats.videoDecodeKind}" +
+                    "echo-autoRetry skip hard decode: kind=${codecInfo.kind}" +
                         " current=$currentCodec candidate=$hardCandidate",
                 )
                 return false

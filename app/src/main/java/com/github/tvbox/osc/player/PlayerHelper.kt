@@ -115,6 +115,21 @@ object PlayerHelper {
         PlayerDecodeKind.UNKNOWN -> if ("软解码" == configuredExo) 1 else 0 // i18n: keep
     }
 
+    @JvmStatic
+    fun pendingDecodeIndex(
+        pending: String?,
+        pendingAt: Long,
+        pendingGeneration: Int,
+        now: Long,
+        currentGeneration: Int,
+        timeoutMs: Long,
+    ): Int? {
+        if (pending == null) return null
+        if (now - pendingAt > timeoutMs) return null
+        if (pendingGeneration != currentGeneration) return null
+        return if ("软解码" == pending) 1 else 0 // i18n: keep
+    }
+
     /**
      * 自动软解回退是否会落到当前已经使用的 codec 上（设备没有硬解时常见）。
      * 只在实际已跑在软解器上时才可能"切了没变化"：当前是硬解器一律允许回退；

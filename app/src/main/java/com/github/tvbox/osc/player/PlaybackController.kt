@@ -284,6 +284,9 @@ class PlaybackController {
             this@PlaybackController.inheritProgressFrom(key, position)
         }
 
+        override fun videoCodecInfo(): VideoCodecInfo =
+            this@PlaybackController.view?.videoCodecInfo() ?: VideoCodecInfo()
+
         override fun webPlayUrl(): String? = this@PlaybackController.webPlayUrl
 
         override fun webHeaderMap(): HashMap<String, String>? = this@PlaybackController.webHeaderMap

@@ -18,14 +18,35 @@ import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.cancel
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import org.json.JSONObject
 import java.lang.ref.WeakReference
 import java.util.HashMap
 
-class PlaybackEngine(context: Context) : PlaybackHostApi {
+class PlaybackEngine(context: Context) : PlaybackHostApi, VideoCodecObserver {
 
     private val appContext: Context = context.applicationContext
+
+    private val _videoCodec = MutableStateFlow(VideoCodecInfo())
+
+    val videoCodec: StateFlow<VideoCodecInfo> = _videoCodec.asStateFlow()
+
+    override val codecInfo: VideoCodecInfo
+        get() = _videoCodec.value
+
+    override fun onCodecInitialized(name: String, kind: PlayerDecodeKind) {
+        _videoCodec.update {
+            it.copy(decoderName = name, kind = kind, generation = it.generation + 1)
+        }
+    }
+
+    override fun onCodecReleased() {
+        _videoCodec.update { VideoCodecInfo(generation = it.generation + 1) }
+    }
 
     private val videoView: MyVideoView
 
@@ -93,6 +114,7 @@ class PlaybackEngine(context: Context) : PlaybackHostApi {
     private fun createPlayerView(): MyVideoView {
         val ctx = ContextThemeWrapper(appContext, R.style.AppTheme_NoActionBar)
         val view = MyVideoView(ctx)
+        view.videoCodecObserver = this
         view.setRenderViewFactory(
             if (KV.get(HawkConfig.PLAY_RENDER, 1) == 1) {
                 EngineSurfaceRenderViewFactory.create()
@@ -364,6 +386,7 @@ class PlaybackEngine(context: Context) : PlaybackHostApi {
         controller.releaseFetch()
         controller.stopParse()
         controller.stopLoadWebView(true)
+        onCodecReleased()
         stateScope.cancel()
         main.removeCallbacksAndMessages(null)
     }
@@ -638,6 +661,8 @@ class PlaybackEngine(context: Context) : PlaybackHostApi {
 
         override fun applyPlayerConfig(cfg: JSONObject) {
         }
+
+        override fun videoCodecInfo(): VideoCodecInfo = videoCodec.value
 
         override fun firstUrlByArray(url: String): String {
             return PlayerSwitchUseCase.firstUrlByArray(url)

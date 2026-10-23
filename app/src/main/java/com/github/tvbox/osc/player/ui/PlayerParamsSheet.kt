@@ -42,6 +42,7 @@ import kotlin.math.roundToInt
 @Composable
 internal fun PlayerParamsSheet(
     sheet: ParamsSheetState,
+    decodeChoice: ParamsChoice,
     tab: ParamsTab,
     onTabSelected: (ParamsTab) -> Unit,
     osdVisible: Boolean,
@@ -86,7 +87,7 @@ internal fun PlayerParamsSheet(
             )
             Spacer(Modifier.height(playerDim(R.dimen.vs_30)))
             when (tab) {
-                ParamsTab.Playback -> PlaybackParams(sheet, osdVisible, onToggleOsd, onDismiss)
+                ParamsTab.Playback -> PlaybackParams(sheet, decodeChoice, osdVisible, onToggleOsd, onDismiss)
                 ParamsTab.Picture -> PictureParams(sheet.picture)
             }
         }
@@ -96,6 +97,7 @@ internal fun PlayerParamsSheet(
 @Composable
 private fun PlaybackParams(
     sheet: ParamsSheetState,
+    decodeChoice: ParamsChoice,
     osdVisible: Boolean,
     onToggleOsd: () -> Unit,
     onDismiss: () -> Unit,
@@ -103,7 +105,7 @@ private fun PlaybackParams(
     Column(Modifier.fillMaxWidth()) {
         ParamsChoiceGroup(R.string.player_params_player, sheet.player, R.drawable.player_ic_params_player)
         ParamsGroupDivider()
-        ParamsChoiceGroup(R.string.settings_play_decode, sheet.decode, R.drawable.player_ic_params_decode)
+        ParamsChoiceGroup(R.string.settings_play_decode, decodeChoice, R.drawable.player_ic_params_decode)
         ParamsGroupDivider()
         ParamsSliderGroup(R.string.player_params_speed, sheet.speed, R.drawable.player_ic_params_speed)
         ParamsGroupDivider()
