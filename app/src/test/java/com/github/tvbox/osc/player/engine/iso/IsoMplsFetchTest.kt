@@ -4,6 +4,7 @@ import java.util.Collections
 import java.util.concurrent.ConcurrentHashMap
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNull
+import org.junit.Assert.assertThrows
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
@@ -37,6 +38,23 @@ class IsoMplsFetchTest {
 
         assertEquals(1, threads.size)
         assertEquals(entries.map { it.name }, order)
+    }
+
+    @Test
+    fun runWithBudget_returnsNullOnTimeout() {
+        val result = IsoMplsFetch.runWithBudget(50) {
+            Thread.sleep(400)
+            true
+        }
+
+        assertNull(result)
+    }
+
+    @Test
+    fun runWithBudget_rethrowsErrorCause() {
+        assertThrows(AssertionError::class.java) {
+            IsoMplsFetch.runWithBudget(2_000) { throw AssertionError("boom") }
+        }
     }
 
     @Test

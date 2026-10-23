@@ -4,8 +4,11 @@ import com.github.tvbox.osc.util.LOG
 import java.util.Locale
 import java.util.concurrent.Callable
 import java.util.concurrent.ConcurrentHashMap
+import java.util.concurrent.ExecutionException
 import java.util.concurrent.Executors
+import java.util.concurrent.FutureTask
 import java.util.concurrent.TimeUnit
+import java.util.concurrent.TimeoutException
 import java.util.concurrent.atomic.AtomicInteger
 
 data class IsoPlayRun(val offset: Long, val length: Long)
@@ -346,7 +349,9 @@ class IsoLocator(private val volume: IsoFileSource) {
             return emptyList()
         }
         val fastTargets = entries.filter { it.name.lowercase(Locale.ROOT) in MAIN_PLAYLISTS }
+        val covered = HashSet<String>()
         if (fastTargets.isNotEmpty() && fastTargets.size < entries.size) {
+            if (prefetchPlaylists(fastTargets)) covered += fastTargets.map { it.name }
             val fastStarted = System.currentTimeMillis()
             val fastPayloads = IsoMplsFetch.load(fastTargets) { entry ->
                 val data = volume.readEntry(entry)
@@ -369,6 +374,7 @@ class IsoLocator(private val volume: IsoFileSource) {
         var skipLogged = 0
         var unreadable = 0
         val fetchStarted = System.currentTimeMillis()
+        prefetchPlaylists(mplPrefetchCandidates(entries, covered))
         val payloads = IsoMplsFetch.load(entries) { entry ->
             val data = volume.readEntry(entry)
             MplFetchResult(data, parseMplPlaylist(entry.name, data))
@@ -414,6 +420,46 @@ class IsoLocator(private val volume: IsoFileSource) {
                 ":top=$summary:fetch=$fetchMs:dir=$dirMs",
         )
         return parsed
+    }
+
+    private fun prefetchPlaylists(entries: List<IsoEntry>): Boolean {
+        if (entries.isEmpty()) return false
+        val extents = entries.flatMap { it.extents }
+        val payload = extents.sumOf { it.length }
+        val plan = mplPrefetchPlan(extents)
+        if (plan.windows.isEmpty()) {
+            val span = if (extents.isEmpty()) {
+                0L
+            } else {
+                extents.maxOf { it.offset + it.length } - extents.minOf { it.offset }
+            }
+            LOG.i("echo-iso-mpls-prefetch:0:$span:$payload:0:${plan.reason}")
+            return false
+        }
+        var loaded = 0
+        var expired = 0
+        for (window in plan.windows) {
+            val result = IsoMplsFetch.runWithBudget(PREFETCH_BUDGET_MS) {
+                try {
+                    volume.prefetch(window.offset, window.length)
+                } catch (e: Exception) {
+                    LOG.i("echo-iso-mpls-prefetch-fail:${window.offset}:${e.message}")
+                    false
+                }
+            }
+            when (result) {
+                null -> expired++
+                true -> loaded++
+                false -> Unit
+            }
+            if (expired > 0) break
+        }
+        LOG.i(
+            "echo-iso-mpls-prefetch:${plan.windows.size}:" +
+                "${plan.windows.sumOf { it.length.toLong() }}:$payload:$loaded:${plan.reason}",
+        )
+        if (expired > 0) LOG.i("echo-iso-mpls-prefetch-timeout:$expired")
+        return loaded == plan.windows.size
     }
 
     private fun dumpRange(name: String, data: ByteArray, from: Int, limit: Int) {
@@ -462,6 +508,7 @@ class IsoLocator(private val volume: IsoFileSource) {
         const val HEAD_HEX_BYTES = 4096
         const val HEX_BYTES_PER_LINE = 64
         const val HEX_DIGITS = "0123456789abcdef"
+        const val PREFETCH_BUDGET_MS = 3_000L
     }
 }
 
@@ -476,6 +523,27 @@ internal object IsoMplsFetch {
 
     private val executor = Executors.newFixedThreadPool(THREADS) { runnable ->
         Thread(runnable, "iso-mpls-${ordinal.incrementAndGet()}").apply { isDaemon = true }
+    }
+
+    private val prefetchExecutor = Executors.newFixedThreadPool(1) { runnable ->
+        Thread(runnable, "iso-mpls-prefetch-${ordinal.incrementAndGet()}").apply { isDaemon = true }
+    }
+
+    fun <T> runWithBudget(budgetMs: Long, block: () -> T): T? {
+        val task = FutureTask(Callable { block() })
+        prefetchExecutor.execute(task)
+        return try {
+            task.get(budgetMs, TimeUnit.MILLISECONDS)
+        } catch (e: TimeoutException) {
+            task.cancel(false)
+            null
+        } catch (e: ExecutionException) {
+            throw e.cause ?: e
+        } catch (e: InterruptedException) {
+            Thread.currentThread().interrupt()
+            task.cancel(false)
+            null
+        }
     }
 
     fun load(entries: List<IsoEntry>, loader: (IsoEntry) -> MplFetchResult): Array<MplFetchResult?> {

@@ -1901,3 +1901,29 @@ echo-iso-idr-miss:00016.m2ts:229486272:66440   ← 16MB 内一个 IDR 都没有
 改动后这张盘的时间构成:probe + 补读 1.53s、UDF 2.35s、mpls 3.45s(fetch 2.60 + parse 0.85)、轨道声明到尾读 1.50s、尾读到 `codec-init` 3.28s。**当前最大的两段是「尾读→解码器初始化」和「mpls 解析」**,前者取决于首批数据与硬解能力,后者是纯 CPU、并行化收益有限。
 
 顺带记一个**踩坑**:第一次复验时用户"退出播放页再进同一集",日志出现 `echo-p3 take over same playback`(`sameOwned=true`)—— 页面直接接管旧播放,**不重建媒体源**,既不复现旧 bug 也不验证修复。要走到 `IsoVolumeCache` 那条路,必须真正触发第二次 `prepare()`(换线路、或播别的条目再回来)。
+
+### 13.14 起播解析减请求数:mpls 聚合预取成立,两条「预读」判负(2026-10-23)
+
+**背景**:45.2GB / 8 段盘实测首帧 8.43s,其中解析段 4.1s ≈ **11 个请求 × 370ms**(UDF 6 条 + mpls 5 条),全是冷首字节,不是吞吐瓶颈。据此先评估了三种「预读」。
+
+**判负 1:首块视频预读**。「playlist 解析完成 → prepare 之间,对首个 RAP 偏移预读 2~4MB」在结构上不成立:probe/UDF/mpls 全在 media3 第一次 `IsoDataSource.open()` 内跑完(`IsoTargetProvider.resolve`),返回即首块读,中间零空档——日志里 resolve 结束(40.835)到首块数据开始读(41.540 `pgs-format`)只差 2ms。串行预读只是把等待前移(净收益 0);并行预读需要额外的「读前缓冲 + 消费」且正是 §14.16 判过的后台抢带宽形态。
+
+**判负 2:probe 合并 VRS**。probe 由 4KB 改成一次读 `0..sector16+512KB = 557056`,`withPreload` 装饰器切片供 VRS。机制生效(`echo-iso-probe:open=557056`、VRS 零请求),但 probe+VRS 合计 **1.39s → 1.46s**:省掉一次往返,却把 512KB 挪进第一个请求,而首字节延迟本身是 1s 级。已回退,`IsoResolver.kt` 与基线零差异。
+
+**成立:mpls 段聚合预取**。读前按 extent 合并成 1~4 个窗口(≤4MB / 间隙 256KB / 密度 50%),窗口数超限或跨度超限直接跳过、失败回落逐文件。逻辑落在 `mplPrefetchWindows`(纯函数,6 例单测) + `IsoLocator.prefetchPlaylists`。
+
+- 实测 1(45.2GB / 5 个 mpls,每个 618B):`echo-iso-mpls-prefetch:0:<span>:3090:0` —— 5 个文件分散在 5 处、窗口数超上限 → 按设计跳过,零副作用;
+- 实测 2(35.57GB / 167 m2ts / 202 mpls):`echo-iso-mpls-prefetch:1:64402:63268:1`、`echo-iso-mpls-fast:00801.mpls:…:dir=1118:fetch=34` —— mpls 段从历史 6.3s、今天早间 1.1~3.0s 降到 **1.6s**(dir 1118 + 预取 460 + fetch 34);该盘首帧 8.85s(同盘 05:58 是 11.62s、07:08 网络好时 5.21s,总时长不可横比)。
+
+**判据**:`echo-iso-mpls-prefetch:<windows>:<span 或窗口总长>:<payload>:<ok>`;`windows=0` 时第 2 段是 union span,用来判断「差多少」。
+
+**同日审查后的四项修正(已装机,单测 1396 通过)**:
+
+1. **预取加 3s 预算**:窗口改跑在 `IsoMplsFetch` 的独立预取线程(`iso-mpls-prefetch-N`)上,`Future.get(3s)` 超时即放弃并 `break`(不再试后续窗口),日志打 `echo-iso-mpls-prefetch-timeout:<n>`。放弃后后台读仍会填 cache,不浪费;预取线程与 mpls 读取线程分开,卡住的预取不会堵住回落路径。
+2. **`fastTargets == entries` 时也预取**:原来的过滤条件是「名字在 fastNames 里就排除」,当 PLAYLIST 只有 00800/00801 时全被排除;改成 `covered` 集合——**只有真正预取成功**才把条目计入,配合 `mplPrefetchCandidates(entries, covered)` 过滤。
+3. **span 缓存加字节上限**:`UdfParser` 新增 `MAX_SPAN_BYTES = 8MB`,`remember()` 里同步扣减、超限淘汰最旧(至少保留 1 条),避免 4 卷 × 2 窗口 × 4MB 常驻。
+4. **日志加原因位**:`echo-iso-mpls-prefetch:<windows>:<bytes>:<payload>:<ok>:<reason>`,`reason` = `ok`/`empty`/`span`/`sparse`/`many`,用来区分「为什么没预取」。
+
+新增/改写用例:`mplPrefetchPlan` 8 例(含 4 个 reason 断言) + `mplPrefetchCandidates` 1 例(锁 F2 那个 bug) + `UdfParser.prefetch` 3 例。
+
+**第二轮审查后的第五项修正**:`runWithBudget` 原来用 `catch (Exception)` 兜底,把 `Future.get()` 抛的 `ExecutionException` 也当成超时,等于静默吞掉块内的 Error(OOM 之类)。现改为分别 `catch (TimeoutException)`(返回 null → 计为超时)、`catch (ExecutionException)`(抛 `cause`,恢复「不吞错」)、`catch (InterruptedException)`(复位中断位后返回 null)。补 2 例:`runWithBudget` 超时返回 null、Error 被原样抛出。单测 **1398 通过 / 0 失败**。

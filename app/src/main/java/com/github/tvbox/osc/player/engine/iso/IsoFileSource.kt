@@ -6,6 +6,7 @@ interface IsoFileSource {
     fun list(directory: IsoEntry): List<IsoEntry>
     fun find(directory: IsoEntry, name: String): IsoEntry?
     fun readEntry(entry: IsoEntry): ByteArray
+    fun prefetch(offset: Long, length: Int): Boolean = false
 }
 
 internal const val ISO_ROOT_PATH = ""

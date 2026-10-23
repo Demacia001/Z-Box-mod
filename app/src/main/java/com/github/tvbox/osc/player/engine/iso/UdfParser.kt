@@ -10,6 +10,7 @@ internal class UdfParser(
 ) {
 
     private val spans = ArrayList<Span>()
+    private var spanBytes = 0L
     private val reads = java.util.concurrent.atomic.AtomicInteger()
 
     fun readFileEntry(
@@ -100,6 +101,7 @@ internal class UdfParser(
         if (size <= 0) return false
         if (cached(start, size) != null) return false
         val bytes = reader.read(start, size)
+        reads.incrementAndGet()
         if (bytes.isEmpty()) return false
         remember(start, bytes)
         return true
@@ -119,8 +121,12 @@ internal class UdfParser(
 
     private fun remember(start: Long, bytes: ByteArray) {
         synchronized(spans) {
-            if (spans.size >= MAX_SPANS) spans.removeAt(0)
+            if (spans.size >= MAX_SPANS) spanBytes -= spans.removeAt(0).bytes.size
             spans.add(Span(start, bytes))
+            spanBytes += bytes.size
+            while (spans.size > 1 && spanBytes > MAX_SPAN_BYTES) {
+                spanBytes -= spans.removeAt(0).bytes.size
+            }
         }
     }
 
@@ -219,6 +225,7 @@ internal class UdfParser(
         const val MAX_FILE_ENTRY_BLOCKS = 4
         const val PREFETCH_BYTES = 128 * 1024
         const val MAX_SPANS = 32
+        const val MAX_SPAN_BYTES = 8L * 1024L * 1024L
         const val LARGE_FILE_LIMIT = 4L * 1024L * 1024L * 1024L
     }
 }

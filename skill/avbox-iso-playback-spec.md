@@ -214,7 +214,8 @@ ADB="/c/Users/Administrator/AppData/Local/Android/Sdk/platform-tools/adb.exe"
 | `echo-iso-audio-format:<id>:<mime>:ch=` | 实际选中并送解码的音轨格式(每条变更一次),音频类问题先看它 |
 | `echo-iso-audio-skip:<pid>` | 该音轨被拉黑后不再声明(`IsoAudioFallback`,音频解码失败后自动切换的落地) |
 | `echo-iso-m2ts:count/…:chosen` | 盘内 m2ts 与选中项(多段盘判据) |
-| `echo-iso-mpls:…:chosen=…:duration=…:unique=…:top=…` | 播放列表盘点;`duration != unique` = 重复段;末尾 `:fetch=<ms>` 是这批 mpls 的读+解析耗时(并发 4) |
+| `echo-iso-mpls:…:chosen=…:duration=…:unique=…:top=…` | 播放列表盘点;`duration != unique` = 重复段;末尾 `:fetch=<ms>` 是这批 mpls 的读+解析耗时(串行,1 连接) |
+| `echo-iso-mpls-prefetch:<windows>:<bytes>:<payload>:<ok>:<reason>` | mpls 聚合预取:把待读 mpls 的 extent 合并成 1~4 个窗口一次读完(`D12`)。`windows>0` 时 `bytes` 是窗口总长;`windows=0` 时 `bytes` 是**所有 extent 的 union span**(判「差多少」用),此时退回逐文件。`reason` = `ok`/`empty`/`span`(单窗超 4MB)/`sparse`(密度 <50%)/`many`(窗口数 >4);`prefetch-fail:<offset>:<msg>` = 该窗口抛错;`-timeout:<n>` = 超出 3s 预算的窗口数(超时后不再试后续窗口) |
 | `echo-iso-playlist:…:segments/unique/total` / `-append` | 选片结果与跨段追加 |
 | `echo-iso-streams:<pid>:<lang>,…` | STN 读到的语言表 |
 | `echo-iso-stream-lang:<n>` | 本次会话发布的 `pid→语言` 条数。`IsoResolver.resolve()` 每次都会打(含命中 `IsoVolumeCache`);**坏会话里它缺失** = 语言表没重建 |
@@ -230,7 +231,7 @@ ADB="/c/Users/Administrator/AppData/Local/Android/Sdk/platform-tools/adb.exe"
 | `echo-iso-bandwidth*` / `echo-iso-bdav-*` | 带宽判定 / BDAV 探测与升级 |
 | `echo-exo-selector` / `echo-exo-codec-init` | 解码器候选与实选;`kind=SOFTWARE` 播 4K Main10 必失败 |
 | `echo-iso-error:<msg>` | 解析/定位失败;`volume recognition missing` ≠ 文件不是 ISO |
-| `echo-iso-probe:open=…:total=…:mode=…:Content-Type=…` | 起播探测:本次可读 vs 真实总长。`open != total` = 上游自带分块(总长取自 `Content-Range`);`mode=206/200/range-none` 是源能力,`range-none` 会直接失败并给「该线路返回的资源不完整」 |
+| `echo-iso-probe:open=…:total=…:mode=…:Content-Type=…` | 起播探测:本次可读 vs 真实总长。探测固定 `Range: bytes=0-4095`(4KB),所以 `open=4096` 是常态;**总长只认 `Content-Range` 的 total**(`mode=200` 时才退化到 `Content-Length`);`mode=206/200/range-none` 是源能力,`range-none` 会直接失败并给「该线路返回的资源不完整」 |
 | `echo-iso-probe-head:<16 字节 hex>` | 探测到的首 16 字节;BD 盘前 4KB 常为全零,不代表盘坏 |
 | `echo-iso-truncated:<pos>:<remaining>` | **上游提前 EOF**(不是本次读长度用尽):表现为「播到一半停住/直接结束」,出现即源侧截断,不是容器问题 |
 | `echo-iso-stream-unmapped:<stream_type>:<lang>` | PMT 声明了但我们和 media3 都没有 reader 的流(如 `0xA1` 从属音频、`0xEA` VC-1);该轨被静默丢弃,菜单里不会出现 |
@@ -271,6 +272,7 @@ ADB="/c/Users/Administrator/AppData/Local/Android/Sdk/platform-tools/adb.exe"
 | D10 | 音频解码失败只换音轨,不碰解码方式 | 见 C13。落地:`IsoAudioFallback` 按内容(VOD URL)记一条被拉黑的 PID,重建 MediaSource 时 `PrimaryVideoExtractor` 不再声明它(`echo-iso-audio-skip`),selector 自然落到下一条;提示用 `player_audio_track_fallback_tip`「音轨无法解码,自动切换」。**不做**自动切软解(4K 上只会更糟),也不改 `exo` 解码设置;音频分支在 `autoRetry` 里直接 return,不再往"切内核/换线路"继续走。同 URL 再次播放时拉黑仍然生效 —— 这是有意的:解码器的能力不会因为重播而改变 |
 
 | D11 | `pid→语言`表随 `IsoVolumeInfo` 走,`IsoResolver.resolve()` **每次**都重新发布(含命中原生卷缓存) | 语言表是会话态(`MediaSources.createIsoMediaSource` 每次 `IsoPlaylistState.reset()`),而原先只在 `IsoLocator.locateSelection()` 里 `publishStreams()`;`IsoVolumeCache`(进程内 LRU 4 条 / TTL 10 分钟)命中时**根本不跑 locate** ⇒ 表被清空却没重建,所有轨(音+字)失去语言,字幕菜单退化成"字幕1/2/3…"。代价:`IsoVolumeInfo` 多两个字段 + 每次 resolve 一次 O(n≤30) 映射重建 |
+| D12 | 起播解析**只减请求条数、不加并发**:mpls 读前按 extent 合并成 1~4 个窗口一次预取(`mplPrefetchPlan`,上限 4MB / 间隙 256KB / 密度 50%),失败回落逐文件;每个窗口跑在 `IsoMplsFetch` 的独立预取线程上,`Future.get(3s)` 超时即放弃(后台跑完仍会填 cache),超时后不再试后续窗口 | 解析段耗时是**请求条数 × 冷首字节**(实测 11 条约 4.1s,370ms/条),放大单条块长无收益;`IsoMplsFetch` 的 `THREADS=1` 是 §5-19 连接风暴换来的,不能开回并发。窗口守卫不满足时直接返回空即退回原路径(实测 45.2GB 盘 5 个 618B mpls 分散在 5 处 → `windows=0`,零副作用)。**同批的「probe 一次读 0..sector16+512KB 省掉 VRS 请求」已判负并回退**:省一次往返但 probe 自身变长(1.39s→1.46s),净收益 0。配套约束:`UdfParser` 的 span 缓存加总字节上限 8MB(防 4 卷 × 2 窗口 × 4MB 常驻);fast 路径预取成功才把条目计入 `covered`,未覆盖的条目仍会二次预取(`mplPrefetchCandidates`) |
 
 ## 9. 未决清单
 

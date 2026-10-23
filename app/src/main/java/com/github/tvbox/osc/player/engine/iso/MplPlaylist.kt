@@ -71,6 +71,54 @@ internal fun parseMplPlaylist(name: String, data: ByteArray): IsoPlaylist? {
 internal fun pickLongestPlaylist(playlists: List<IsoPlaylist>): IsoPlaylist? =
     playlists.maxByOrNull { uniqueDurationMs(it) }
 
+internal data class IsoPrefetchWindow(val offset: Long, val length: Int)
+
+internal data class MplPrefetchPlan(val windows: List<IsoPrefetchWindow>, val reason: String)
+
+internal fun mplPrefetchPlan(
+    extents: List<IsoExtent>,
+    maxSpan: Long = PREFETCH_MAX_SPAN,
+    maxGap: Long = PREFETCH_MAX_GAP,
+    minDensity: Double = PREFETCH_MIN_DENSITY,
+    maxWindows: Int = PREFETCH_MAX_WINDOWS,
+): MplPrefetchPlan {
+    val sorted = extents.filter { it.length > 0L }.sortedBy { it.offset }
+    if (sorted.isEmpty()) return MplPrefetchPlan(emptyList(), REASON_EMPTY)
+    val groups = ArrayList<PrefetchGroup>()
+    for (extent in sorted) {
+        val end = extent.offset + extent.length
+        val open = groups.lastOrNull()
+        if (open != null && extent.offset <= open.end + maxGap) {
+            open.payload += (end - maxOf(extent.offset, open.end)).coerceAtLeast(0L)
+            open.end = maxOf(open.end, end)
+        } else {
+            groups.add(PrefetchGroup(extent.offset, end, extent.length))
+        }
+    }
+    val windows = ArrayList<IsoPrefetchWindow>(groups.size)
+    var skipped = REASON_OK
+    for (group in groups) {
+        val span = group.end - group.start
+        if (span <= 0L || span > maxSpan) {
+            if (skipped == REASON_OK) skipped = REASON_SPAN
+            continue
+        }
+        if (group.payload.toDouble() / span < minDensity) {
+            if (skipped == REASON_OK) skipped = REASON_SPARSE
+            continue
+        }
+        windows.add(IsoPrefetchWindow(group.start, span.toInt()))
+    }
+    if (windows.isEmpty()) return MplPrefetchPlan(emptyList(), skipped)
+    if (windows.size > maxWindows) return MplPrefetchPlan(emptyList(), REASON_MANY)
+    return MplPrefetchPlan(windows, REASON_OK)
+}
+
+internal fun mplPrefetchCandidates(entries: List<IsoEntry>, covered: Set<String>): List<IsoEntry> =
+    if (covered.isEmpty()) entries else entries.filter { it.name !in covered }
+
+private class PrefetchGroup(var start: Long, var end: Long, var payload: Long)
+
 internal fun uniqueDurationMs(playlist: IsoPlaylist): Long {
     val seen = HashSet<IsoPlaylistSegment>(playlist.segments.size)
     var total = 0L
@@ -182,6 +230,15 @@ private fun be32(bytes: ByteArray, offset: Int): Long =
         ((bytes[offset + 2].toLong() and 0xFF) shl 8) or
         (bytes[offset + 3].toLong() and 0xFF)
 
+internal const val REASON_EMPTY = "empty"
+internal const val REASON_SPAN = "span"
+internal const val REASON_SPARSE = "sparse"
+internal const val REASON_MANY = "many"
+internal const val REASON_OK = "ok"
+private const val PREFETCH_MAX_SPAN = 4L * 1024L * 1024L
+private const val PREFETCH_MAX_GAP = 256L * 1024L
+private const val PREFETCH_MIN_DENSITY = 0.5
+private const val PREFETCH_MAX_WINDOWS = 4
 private const val MPLS_SIGNATURE = "MPLS"
 private const val SIGNATURE_SIZE = 4
 private const val HEADER_MIN_SIZE = 12

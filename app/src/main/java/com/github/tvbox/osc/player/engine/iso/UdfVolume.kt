@@ -122,6 +122,8 @@ class UdfVolume private constructor(
             }
         }
 
+    override fun prefetch(offset: Long, length: Int): Boolean = parser.prefetch(offset, length)
+
     private class FidChild(
         val name: String,
         val location: FileLocation,
