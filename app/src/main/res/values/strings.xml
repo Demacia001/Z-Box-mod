@@ -1,5 +1,5 @@
 <resources>
-    <string name="app_name">AVBox</string>
+    <string name="app_name">Z-Box</string>
 
     <string name="settings_language">语言</string>
     <string name="settings_group_language_layout">语言与布局</string>
@@ -111,7 +111,7 @@
     <string name="search_no_result">「%1$s」暂无搜索结果</string>
 
     <string name="cast_title">投屏到设备</string>
-    <string name="cast_hint">确认电视/盒子已安装AVBox或已打开DLNA投屏\n电视/盒子与手机连接在同一Wi-Fi下</string>
+    <string name="cast_hint">确认电视/盒子已安装Z-Box或已打开DLNA投屏\n电视/盒子与手机连接在同一Wi-Fi下</string>
     <string name="cast_permission_hint">需要允许「附近的设备」权限才能搜索投屏设备\n开启后点「刷新」重试</string>
     <string name="cast_searching">正在搜索设备...</string>
     <string name="cast_no_device">未找到可用设备</string>
@@ -600,7 +600,7 @@
     <string name="toast_local_missing_files_all_files">还有 %1$d 个同目录文件没搬过来,请选择该配置所在的文件夹(开启「所有文件访问」后可直接引用原目录,不必搬文件)</string>
     <string name="toast_storage_asked_by_spider">权限由爬虫模块申请</string>
     <string name="toast_local_tree_denied">没拿到该配置所在文件夹的授权,已取消导入(可再点一次重试)</string>
-    <string name="toast_local_tree_forbidden">该配置在系统不允许授权的目录里(存储根/下载/Android),请把它放进自建文件夹(如 手机存储/AVBox/)后再导入</string>
+    <string name="toast_local_tree_forbidden">该配置在系统不允许授权的目录里(存储根/下载/Android),请把它放进自建文件夹(如 手机存储/Z-Box/)后再导入</string>
     <string name="toast_local_refs_missing">还有 %1$d 个同目录引用的文件没搬过来,该源可能不可用(可重新导入)</string>
     <string name="player_channel_mono">单声道</string>
     <string name="player_channel_stereo">立体声</string>

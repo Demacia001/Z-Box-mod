@@ -70,7 +70,7 @@ internal fun AppInfoHeaderCard(versionName: String) {
             Spacer(Modifier.width(20.dp))
             Column(modifier = Modifier.weight(1f)) {
                 Text(
-                    text = "AudioVideoBox",
+                    text = "Z-Box",
                     style = MaterialTheme.typography.headlineMedium,
                     fontSize = 24.sp,
                     fontWeight = FontWeight.Bold,

@@ -240,7 +240,7 @@ fun SettingsPage(
         ) {
             Spacer(Modifier.height(topPad - 20.dp))
 
-            AppInfoHeaderCard(versionName = versionName)
+            // AppInfoHeaderCard(versionName = versionName)  // Z-Box: 隐藏顶部信息卡片
 
             SettingsGroup(title = null) {
                 SettingsCard(SettingsCardPosition.FIRST) {
@@ -364,25 +364,25 @@ fun SettingsPage(
                 }
             }
 
-            SettingsGroup(title = null) {
-                SettingsCard(SettingsCardPosition.FIRST) {
-                    SettingsRow(
-                        title = stringResource(R.string.settings_about),
-                        subtitle = stringResource(R.string.settings_about_subtitle),
-                        iconRes = R.drawable.ic_settings_about,
-                        onClick = { aboutSheet = true },
-                    )
-                }
+            // SettingsGroup(title = null) {
+            // SettingsCard(SettingsCardPosition.FIRST) {
+            // SettingsRow(
+            // title = stringResource(R.string.settings_about),
+            // subtitle = stringResource(R.string.settings_about_subtitle),
+            // iconRes = R.drawable.ic_settings_about,
+            // onClick = { aboutSheet = true },
+            // )
+            // }
 
-                SettingsCard(SettingsCardPosition.LAST) {
-                    SettingsRow(
-                        title = stringResource(R.string.settings_github),
-                        subtitle = stringResource(R.string.settings_github_subtitle),
-                        iconRes = R.drawable.ic_settings_github,
-                        onClick = { openExternalUrl(context, GITHUB_REPO_URL) },
-                    )
-                }
-            }
+            // SettingsCard(SettingsCardPosition.LAST) {
+            // SettingsRow(
+            // title = stringResource(R.string.settings_github),
+            // subtitle = stringResource(R.string.settings_github_subtitle),
+            // iconRes = R.drawable.ic_settings_github,
+            // onClick = { openExternalUrl(context, GITHUB_REPO_URL) },
+            // )
+            // }
+            // }
         }
     }
 
@@ -424,7 +424,7 @@ private fun AboutSheet(versionName: String, onDismiss: () -> Unit) {
 
 private const val AboutSheetHeightFraction = 0.6f
 
-private const val GITHUB_REPO_URL = "https://github.com/XiaochangXu/AVBox"
+private const val GITHUB_REPO_URL = "https://zz.zz.zz"
 
 private fun openExternalUrl(context: Context, url: String) {
     try {

@@ -93,7 +93,6 @@ import kotlinx.coroutines.launch
 private enum class AppTab(@StringRes val labelRes: Int, @DrawableRes val icon: Int) {
     HOME(R.string.tab_home, R.drawable.ic_tab_home),
     RECORDS(R.string.tab_records, R.drawable.ic_tab_records),
-    FOLLOWING(R.string.tab_following, R.drawable.ic_tab_following),
     SETTINGS(R.string.tab_mine, R.drawable.ic_tab_mine),
 }
 
@@ -178,11 +177,11 @@ private fun MainContent() {
         mutableStateOf(!KV.get(HawkConfig.NAV_ANIMATION_DISABLED, false))
     }
     var navLiveHidden by remember {
-        mutableStateOf(KV.get(HawkConfig.NAV_LIVE_HIDDEN, false))
+        mutableStateOf(true) // Z-Box: 隐藏直播浮动按钮
     }
     LifecycleEventEffect(Lifecycle.Event.ON_RESUME) {
         navAnimationEnabled = !KV.get(HawkConfig.NAV_ANIMATION_DISABLED, false)
-        navLiveHidden = KV.get(HawkConfig.NAV_LIVE_HIDDEN, false)
+        navLiveHidden = true // Z-Box: 隐藏直播浮动按钮
     }
 
     val selectTab: (Int) -> Unit = { index ->
@@ -327,7 +326,6 @@ private fun MainContent() {
                             when (AppTab.entries[page]) {
                                 AppTab.HOME -> HomePage(homeViewModel, pageContentPadding)
                                 AppTab.RECORDS -> RecordsPage(contentPadding = pageContentPadding)
-                                AppTab.FOLLOWING -> FollowingPage(contentPadding = pageContentPadding)
                                 AppTab.SETTINGS -> SettingsPage(contentPadding = pageContentPadding)
                             }
                         }

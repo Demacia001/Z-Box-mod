@@ -1,5 +1,5 @@
 <resources>
-    <string name="app_name">AVBox</string>
+    <string name="app_name">Z-Box</string>
 
     <string name="settings_language">Language</string>
     <string name="settings_group_language_layout">Language &amp; Layout</string>
@@ -111,7 +111,7 @@
     <string name="search_no_result">No results for “%1$s”</string>
 
     <string name="cast_title">Cast to Device</string>
-    <string name="cast_hint">Make sure the TV/box has AVBox installed or DLNA casting enabled\nThe TV/box and the phone are connected to the same Wi-Fi</string>
+    <string name="cast_hint">Make sure the TV/box has Z-Box installed or DLNA casting enabled\nThe TV/box and the phone are connected to the same Wi-Fi</string>
     <string name="cast_permission_hint">Allow the “Nearby devices” permission to search for cast devices\nAfter enabling it, tap “Refresh” to retry</string>
     <string name="cast_searching">Searching for devices…</string>
     <string name="cast_no_device">No devices found</string>
@@ -600,7 +600,7 @@
     <string name="toast_local_missing_files_all_files">%1$d files in the same folder have not been copied. Select the folder containing this config (with “All files access”, the original folder can be referenced directly)</string>
     <string name="toast_storage_asked_by_spider">Requested by the spider module</string>
     <string name="toast_local_tree_denied">Folder access for this config was not granted, import cancelled (tap again to retry)</string>
-    <string name="toast_local_tree_forbidden">This config sits in a folder the system never allows granting (storage root / Download / Android). Move it into a folder you created (e.g. Phone storage/AVBox/) and import again.</string>
+    <string name="toast_local_tree_forbidden">This config sits in a folder the system never allows granting (storage root / Download / Android). Move it into a folder you created (e.g. Phone storage/Z-Box/) and import again.</string>
     <string name="toast_local_refs_missing">%1$d referenced files in the same folder have not been copied, so this source may not work (re-import to fix)</string>
     <string name="player_channel_mono">Mono</string>
     <string name="player_channel_stereo">Stereo</string>
