@@ -310,9 +310,10 @@ fun HomePage(
                             style = MaterialTheme.typography.bodyMedium,
                             color = MaterialTheme.colorScheme.onSurfaceVariant,
                         )
-                        TextButton(onClick = { ConfigManageActivity.start(context) }) {
-                            Text(stringResource(R.string.config_add_subscribe))
-                        }
+                        // Z-Box extra: 隐藏"添加订阅"按钮（禁止自行添加配置）
+                        // TextButton(onClick = { ConfigManageActivity.start(context) }) {
+                        //     Text(stringResource(R.string.config_add_subscribe))
+                        // }
                     }
                 }
             }

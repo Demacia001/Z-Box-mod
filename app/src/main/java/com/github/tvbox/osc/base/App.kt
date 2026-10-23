@@ -19,6 +19,7 @@ import com.github.tvbox.osc.util.AppContextHolder
 import com.github.tvbox.osc.util.AppManager
 import com.github.tvbox.osc.util.EpgUtil
 import com.github.tvbox.osc.util.HawkConfig
+import com.github.tvbox.osc.util.HistoryHelper
 import com.github.tvbox.osc.util.KV
 import com.github.tvbox.osc.util.LOG
 import com.github.tvbox.osc.util.LanguageManager
@@ -89,12 +90,14 @@ class App : Application() {
             PlayerCache.warmup(this)
             Probe.trace("boot:cleanPlayerCache") { FileUtils.cleanPlayerCache() }
         }, "exo-cache-boot").start()
-        // Z-Box extra: 内置默认点播订阅
+        // Z-Box extra: 内置默认点播订阅（自动启用）
         val existingSubs = KV.get(HawkConfig.SUBSCRIBE_LIST, ArrayList<String>())
         if (existingSubs.isEmpty()) {
             val defaultSubs = arrayListOf("Z-Box\thttp://u3v.cn/644532")
             KV.put(HawkConfig.SUBSCRIBE_LIST, defaultSubs)
-            LOG.i("Z-Box: 内置默认订阅已添加")
+            KV.put(HawkConfig.API_URL, "http://u3v.cn/644532")
+            HistoryHelper.setApiHistory("http://u3v.cn/644532")
+            LOG.i("Z-Box: 内置默认订阅已添加并启用")
         }
 
         bootMark("onCreateDone")
