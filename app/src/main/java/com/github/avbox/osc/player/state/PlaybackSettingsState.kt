@@ -48,7 +48,7 @@ object PlaybackSettingsState {
         bufferTimes = KV.get(KVKeys.BUFFER_TIMES, KVKeys.BUFFER_TIMES_DEFAULT),
         playCache = KV.get(KVKeys.PLAY_CACHE, false),
         exoCacheSizeMb = KV.get(KVKeys.EXO_CACHE_SIZE_MB, KVKeys.EXO_CACHE_SIZE_MB_DEFAULT),
-        preloadNextEpisode = KV.get(KVKeys.PRELOAD_NEXT_EPISODE, false),
+        preloadNextEpisode = KV.get(KVKeys.PRELOAD_NEXT_EPISODE, true),
         preloadDuration = KV.get(KVKeys.PRELOAD_DURATION, KVKeys.PRELOAD_DURATION_DEFAULT),
         anime4kEnabled = KV.get(KVKeys.ANIME4K_ENABLED, false),
         anime4kDeblur = KV.get(KVKeys.ANIME4K_DEBLUR, false),

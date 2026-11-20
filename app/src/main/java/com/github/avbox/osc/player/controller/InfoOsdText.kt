@@ -218,7 +218,7 @@ internal object InfoOsdText {
         parts.add(if (videoView?.renderIsSurface == true) "Surface" else "Texture")
         parts.add(context.getString(R.string.osd_tunnel) + " " + onOffText(context, exo?.isTunnelingEnabled == true))
         parts.add(context.getString(R.string.osd_frame_rate_match) + " " + onOffText(context, false))
-        parts.add(context.getString(R.string.osd_preload) + " " + onOffText(context, KV.get(KVKeys.PRELOAD_NEXT_EPISODE, false) == true))
+        parts.add(context.getString(R.string.osd_preload) + " " + onOffText(context, KV.get(KVKeys.PRELOAD_NEXT_EPISODE, true) == true))
         parts.add(context.getString(R.string.osd_cache) + " " + onOffText(context, KV.get(KVKeys.PLAY_CACHE, false) == true))
         return parts.joinToString(" · ")
     }

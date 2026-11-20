@@ -57,7 +57,7 @@ object PreloadManagerHolder {
     val completedUrl: StateFlow<String?> = _completedUrl.asStateFlow()
 
     @JvmStatic
-    fun enabled(): Boolean = KV.get(KVKeys.PRELOAD_NEXT_EPISODE, false)
+    fun enabled(): Boolean = KV.get(KVKeys.PRELOAD_NEXT_EPISODE, true)
 
     @JvmStatic
     @Synchronized

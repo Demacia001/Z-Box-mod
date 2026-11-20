@@ -112,7 +112,7 @@ class KVKeySpec : KVDecoder.TypeRegistry {
             register(KVKeys.ANIME4K_ENABLED, false)
             register(KVKeys.KERNEL_PREWARM, false)
             register(KVKeys.EXO_VIDEO_DYNAMIC_SCHEDULING, false)
-            register(KVKeys.PRELOAD_NEXT_EPISODE, false)
+            register(KVKeys.PRELOAD_NEXT_EPISODE, true)
             register(KVKeys.ISO_LPCM, true)
             register(KVKeys.ISO_TRUEHD_CORE, true)
             register(KVKeys.ISO_PGS, true)
