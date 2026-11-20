@@ -90,7 +90,6 @@ import kotlinx.coroutines.launch
 private enum class AppTab(@StringRes val labelRes: Int, @DrawableRes val icon: Int) {
     HOME(R.string.tab_home, R.drawable.ic_tab_home),
     RECORDS(R.string.tab_records, R.drawable.ic_tab_records),
-    FOLLOWING(R.string.tab_following, R.drawable.ic_tab_following),
     SETTINGS(R.string.tab_mine, R.drawable.ic_tab_mine),
 }
 
@@ -171,7 +170,7 @@ private fun MainContent() {
     val sheetHost = remember { SheetHostState() }
     val navConfig = UiSettingsState.config
     val navAnimationEnabled = !navConfig.navAnimationDisabled
-    val navLiveHidden = navConfig.navLiveHidden
+    val navLiveHidden = true // Z-Box: 隐藏直播浮动按钮
 
     val selectTab: (Int) -> Unit = { index ->
         scope.launch {
@@ -315,7 +314,6 @@ private fun MainContent() {
                             when (AppTab.entries[page]) {
                                 AppTab.HOME -> HomePage(homeViewModel, pageContentPadding)
                                 AppTab.RECORDS -> RecordsPage(contentPadding = pageContentPadding)
-                                AppTab.FOLLOWING -> FollowingPage(contentPadding = pageContentPadding)
                                 AppTab.SETTINGS -> SettingsPage(contentPadding = pageContentPadding)
                             }
                         }

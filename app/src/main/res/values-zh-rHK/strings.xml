@@ -61,7 +61,7 @@
     <string name="toast_local_missing_files_all_files">還有 %1$d 個同目錄檔案沒搬過來，請選擇該設定所在的文件夾（開啟「所有檔案存取」後可直接引用原目錄，不必搬檔案）</string>
     <string name="toast_storage_asked_by_spider">權限由爬蟲模組申請</string>
     <string name="toast_local_tree_denied">沒取得該設定所在文件夾的授權，已取消匯入（可再點一次重試）</string>
-    <string name="toast_local_tree_forbidden">該設定在系統不允許授權的目錄裡（儲存根／下載／Android），請將它放進自建文件夾（例如 手機儲存/AVBox/）後再匯入</string>
+    <string name="toast_local_tree_forbidden">該設定在系統不允許授權的目錄裡（儲存根／下載／Android），請將它放進自建文件夾（例如 手機儲存/Z-Box/）後再匯入</string>
     <string name="config_pick_local">從本地選擇</string>
     <string name="search_history">搜尋記錄</string>
     <string name="search_history_clear">清除搜尋記錄</string>

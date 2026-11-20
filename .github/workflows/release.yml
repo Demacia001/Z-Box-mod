@@ -90,11 +90,11 @@ jobs:
         id: apk
         run: |
           set -euo pipefail
-          SRC=app/build/outputs/apk/release/AVBox_release.apk
+          SRC=app/build/outputs/apk/release/Z-Box_release.apk
           test -f "$SRC" || { echo "::error::未找到 $SRC"; exit 1; }
 
           VERSION='${{ github.event.inputs.version }}'
-          OUT="AVBox_${VERSION}_arm64-v8a.apk"
+          OUT="Z-Box_${VERSION}_arm64-v8a.apk"
           cp "$SRC" "$OUT"
 
           APKSIGNER="$(find "${ANDROID_HOME:-$ANDROID_SDK_ROOT}/build-tools" -name apksigner -type f | sort -r | head -n1)"
