@@ -314,9 +314,10 @@ fun HomePage(
                             style = MaterialTheme.typography.bodyMedium,
                             color = MaterialTheme.colorScheme.onSurfaceVariant,
                         )
-                        TextButton(onClick = { ConfigManageActivity.start(context) }) {
-                            Text(stringResource(R.string.config_add_subscribe))
-                        }
+                        // Z-Box extra: 隐藏"添加订阅"按钮（禁止自行添加配置）
+                        // TextButton(onClick = { ConfigManageActivity.start(context) }) {
+                        //     Text(stringResource(R.string.config_add_subscribe))
+                        // }
                     }
                 }
             }
@@ -568,22 +569,23 @@ fun HomePage(
                         )
                     }
                 }
-                item {
-                    SettingsGroup(title = null, modifier = Modifier.padding(top = 20.dp)) {
-                        SettingsCard(
-                            position = SettingsCardPosition.SINGLE,
-                            color = MaterialTheme.colorScheme.surfaceBright,
-                        ) {
-                            SettingsRow(
-                                title = stringResource(R.string.settings_config_manage),
-                                onClick = {
-                                    dismissAnimated()
-                                    ConfigManageActivity.start(context)
-                                },
-                            )
-                        }
-                    }
-                }
+                // Z-Box extra: 隐藏配置管理入口
+                // item {
+                // SettingsGroup(title = null, modifier = Modifier.padding(top = 20.dp)) {
+                // SettingsCard(
+                // position = SettingsCardPosition.SINGLE,
+                // color = MaterialTheme.colorScheme.surfaceBright,
+                // ) {
+                // SettingsRow(
+                // title = stringResource(R.string.settings_config_manage),
+                // onClick = {
+                // dismissAnimated()
+                // ConfigManageActivity.start(context)
+                // },
+                // )
+                // }
+                // }
+                // }
             }
         }
     }

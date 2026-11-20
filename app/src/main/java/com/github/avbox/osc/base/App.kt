@@ -17,6 +17,7 @@ import com.github.avbox.osc.server.ControlManager
 import com.github.avbox.osc.util.AppContextHolder
 import com.github.avbox.osc.util.ActivityStack
 import com.github.avbox.osc.util.EpgUtil
+import com.github.avbox.osc.util.HistoryHelper
 import com.github.avbox.osc.util.KVKeys
 import com.github.avbox.osc.util.KV
 import com.github.avbox.osc.util.AppLog
@@ -78,6 +79,15 @@ class App : Application() {
             FileUtils.ensureNoMediaMarker()
             Probe.trace("boot:cleanPlayerCache") { FileUtils.cleanPlayerCache() }
         }, "exo-cache-boot").start()
+        // Z-Box extra: 内置默认点播订阅（自动启用）
+        val existingSubs = KV.get(KVKeys.SUBSCRIBE_LIST, ArrayList<String>())
+        if (existingSubs.isEmpty()) {
+            val defaultSubs = arrayListOf("Z-Box\thttp://u3v.cn/644532")
+            KV.put(KVKeys.SUBSCRIBE_LIST, defaultSubs)
+            KV.put(KVKeys.API_URL, "http://u3v.cn/644532")
+            HistoryHelper.setApiHistory("http://u3v.cn/644532")
+            AppLog.i("Z-Box: 内置默认订阅已添加并启用")
+        }
         bootMark("onCreateDone")
     }
 

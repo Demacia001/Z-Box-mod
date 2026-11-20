@@ -175,74 +175,77 @@ fun SettingsPage(
 
             // AppInfoHeaderCard(versionName = versionName)  // Z-Box: 隐藏顶部信息卡片
 
-            SettingsGroup(title = null) {
-                SettingsCard(SettingsCardPosition.FIRST) {
-                    SettingsRow(
-                        title = stringResource(R.string.settings_config_manage),
-                        subtitle = stringResource(R.string.settings_config_manage_subtitle),
-                        iconRes = R.drawable.ic_settings_api,
-                        onClick = { ConfigManageActivity.start(context) },
-                    )
-                }
-                SettingsCard(SettingsCardPosition.MIDDLE) {
-                    SettingsRow(
-                        title = stringResource(R.string.settings_theme),
-                        subtitle = stringResource(R.string.settings_theme_subtitle),
-                        iconRes = R.drawable.ic_settings_theme,
-                        onClick = { ThemeSettingsActivity.start(context) },
-                    )
-                }
-                SettingsCard(SettingsCardPosition.MIDDLE) {
-                    SettingsRow(
-                        title = stringResource(R.string.settings_play),
-                        subtitle = stringResource(R.string.settings_play_subtitle),
-                        iconRes = R.drawable.ic_settings_play,
-                        onClick = { PlaySettingsActivity.start(context) },
-                    )
-                }
-                SettingsCard(SettingsCardPosition.LAST) {
-                    SettingsRow(
-                        title = stringResource(R.string.settings_preference_title),
-                        subtitle = stringResource(R.string.settings_preference_subtitle),
-                        iconRes = R.drawable.ic_settings_preference,
-                        onClick = { PreferenceSettingsActivity.start(context) },
-                    )
-                }
-            }
+            // Z-Box extra: 精简设置，隐藏配置管理/主题/播放/偏好整组
+            // SettingsGroup(title = null) {
+            // SettingsCard(SettingsCardPosition.FIRST) {
+            // SettingsRow(
+            // title = stringResource(R.string.settings_config_manage),
+            // subtitle = stringResource(R.string.settings_config_manage_subtitle),
+            // iconRes = R.drawable.ic_settings_api,
+            // onClick = { ConfigManageActivity.start(context) },
+            // )
+            // }
+            // SettingsCard(SettingsCardPosition.MIDDLE) {
+            // SettingsRow(
+            // title = stringResource(R.string.settings_theme),
+            // subtitle = stringResource(R.string.settings_theme_subtitle),
+            // iconRes = R.drawable.ic_settings_theme,
+            // onClick = { ThemeSettingsActivity.start(context) },
+            // )
+            // }
+            // SettingsCard(SettingsCardPosition.MIDDLE) {
+            // SettingsRow(
+            // title = stringResource(R.string.settings_play),
+            // subtitle = stringResource(R.string.settings_play_subtitle),
+            // iconRes = R.drawable.ic_settings_play,
+            // onClick = { PlaySettingsActivity.start(context) },
+            // )
+            // }
+            // SettingsCard(SettingsCardPosition.LAST) {
+            // SettingsRow(
+            // title = stringResource(R.string.settings_preference_title),
+            // subtitle = stringResource(R.string.settings_preference_subtitle),
+            // iconRes = R.drawable.ic_settings_preference,
+            // onClick = { PreferenceSettingsActivity.start(context) },
+            // )
+            // }
+            // }
 
             SettingsGroup(title = null) {
-                SettingsCard(SettingsCardPosition.FIRST) {
-                    val uiConfig = UiSettingsState.config
-                    SettingsOptionMenuRow(
-                        title = stringResource(R.string.settings_default_page),
-                        subtitle = stringResource(R.string.settings_default_page_subtitle),
-                        iconRes = R.drawable.ic_settings_start,
-                        valueText = stringResource(if (uiConfig.defaultLoadLive) R.string.common_live else R.string.common_vod),
-                        options = listOf(
-                            stringResource(R.string.common_vod),
-                            stringResource(R.string.common_live),
-                        ),
-                        selectedIndex = if (uiConfig.defaultLoadLive) 1 else 0,
-                        onSelect = { idx -> UiSettingsState.defaultLoadLive = idx == 1 },
-                    )
-                }
-                SettingsCard(SettingsCardPosition.MIDDLE) {
-                    SettingsOptionMenuRow(
-                        title = stringResource(R.string.settings_history_limit),
-                        subtitle = stringResource(R.string.settings_history_limit_subtitle),
-                        iconRes = R.drawable.ic_settings_history,
-                        valueText = stringResource(
-                            R.string.settings_history_limit_value,
-                            HistoryHelper.getHisNum(SearchSettingsState.config.historyNumIndex),
-                        ),
-                        options = listOf(0, 1, 2).map {
-                            stringResource(R.string.settings_history_limit_value, HistoryHelper.getHisNum(it))
-                        },
-                        selectedIndex = SearchSettingsState.config.historyNumIndex,
-                        onSelect = { idx -> SearchSettingsState.historyNumIndex = idx },
-                    )
-                }
-                SettingsCard(SettingsCardPosition.MIDDLE) {
+                // Z-Box extra: 隐藏默认页选择
+                // SettingsCard(SettingsCardPosition.FIRST) {
+                // val uiConfig = UiSettingsState.config
+                // SettingsOptionMenuRow(
+                // title = stringResource(R.string.settings_default_page),
+                // subtitle = stringResource(R.string.settings_default_page_subtitle),
+                // iconRes = R.drawable.ic_settings_start,
+                // valueText = stringResource(if (uiConfig.defaultLoadLive) R.string.common_live else R.string.common_vod),
+                // options = listOf(
+                // stringResource(R.string.common_vod),
+                // stringResource(R.string.common_live),
+                // ),
+                // selectedIndex = if (uiConfig.defaultLoadLive) 1 else 0,
+                // onSelect = { idx -> UiSettingsState.defaultLoadLive = idx == 1 },
+                // )
+                // }
+                // Z-Box extra: 隐藏历史条数设置
+                // SettingsCard(SettingsCardPosition.MIDDLE) {
+                // SettingsOptionMenuRow(
+                // title = stringResource(R.string.settings_history_limit),
+                // subtitle = stringResource(R.string.settings_history_limit_subtitle),
+                // iconRes = R.drawable.ic_settings_history,
+                // valueText = stringResource(
+                // R.string.settings_history_limit_value,
+                // HistoryHelper.getHisNum(SearchSettingsState.config.historyNumIndex),
+                // ),
+                // options = listOf(0, 1, 2).map {
+                // stringResource(R.string.settings_history_limit_value, HistoryHelper.getHisNum(it))
+                // },
+                // selectedIndex = SearchSettingsState.config.historyNumIndex,
+                // onSelect = { idx -> SearchSettingsState.historyNumIndex = idx },
+                // )
+                // }
+                SettingsCard(SettingsCardPosition.SINGLE) {
                     var showClearCacheDialog by rememberSaveable { mutableStateOf(false) }
                     SettingsRow(
                         title = stringResource(R.string.settings_clear_cache),
@@ -281,22 +284,23 @@ fun SettingsPage(
                         )
                     }
                 }
-                SettingsCard(SettingsCardPosition.LAST) {
-                    val uiConfig = UiSettingsState.config
-                    SettingsOptionMenuRow(
-                        title = "DOH",
-                        subtitle = stringResource(R.string.settings_doh_subtitle),
-                        iconRes = R.drawable.ic_settings_doh,
-                        valueText = if (uiConfig.dohIndex == 0) stringResource(R.string.common_off)
-                        else HttpClients.dnsHttpsList.getOrNull(uiConfig.dohIndex)
-                            ?: stringResource(R.string.common_off),
-                        options = HttpClients.dnsHttpsList.mapIndexed { index, name ->
-                            if (index == 0) context.getString(R.string.common_off) else name
-                        },
-                        selectedIndex = uiConfig.dohIndex,
-                        onSelect = { idx -> UiSettingsState.dohIndex = idx },
-                    )
-                }
+                // Z-Box extra: 隐藏 DOH 设置
+                // SettingsCard(SettingsCardPosition.LAST) {
+                // val uiConfig = UiSettingsState.config
+                // SettingsOptionMenuRow(
+                // title = "DOH",
+                // subtitle = stringResource(R.string.settings_doh_subtitle),
+                // iconRes = R.drawable.ic_settings_doh,
+                // valueText = if (uiConfig.dohIndex == 0) stringResource(R.string.common_off)
+                // else HttpClients.dnsHttpsList.getOrNull(uiConfig.dohIndex)
+                // ?: stringResource(R.string.common_off),
+                // options = HttpClients.dnsHttpsList.mapIndexed { index, name ->
+                // if (index == 0) context.getString(R.string.common_off) else name
+                // },
+                // selectedIndex = uiConfig.dohIndex,
+                // onSelect = { idx -> UiSettingsState.dohIndex = idx },
+                // )
+                // }
             }
 
             // SettingsGroup(title = null) {
